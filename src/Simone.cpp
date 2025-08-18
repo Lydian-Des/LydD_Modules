@@ -1,5 +1,5 @@
 
-#include "demo-plugin.hpp"
+#include "plugin.hpp"
 #include <vector>
 
 
@@ -63,6 +63,7 @@ struct SimoneModule : Module
         ITER3_PARAM,
         ITER4_PARAM,
         RANGE_BUTTON_PARAM,
+        ENUMS(OFFSET_PARAMS, 3),
         NUM_PARAMS
     };
     enum InputIds {
@@ -108,22 +109,22 @@ struct SimoneModule : Module
         configParam(SPEED_PARAM, -4.f, 4.f, 0.f, "Speed");
         configParam(FM_PARAM, -1.f, 1.f, 0.f, "FM");
         configParam(PM_PARAM, -1.f, 1.f, 0.f, "PM");
-        configParam(POSITION1_PARAM, -1.5, 1.5, 0.0f, "Place1");
-        configParam(POSITION2_PARAM, -1.5, 1.5, 0.0f, "Place2");
-        configParam(POSITION3_PARAM, -1.5, 1.5, 0.0f, "Place3");
-        configParam(POSITION4_PARAM, -1.5, 1.5, 0.0f, "Place4");
+        configParam(POSITION1_PARAM, -1.5, 1.5, 0.0f, "Pos1");
+        configParam(POSITION2_PARAM, -1.5, 1.5, 0.0f, "Pos2");
+        configParam(POSITION3_PARAM, -1.5, 1.5, 0.0f, "Pos3");
+        configParam(POSITION4_PARAM, -1.5, 1.5, 0.0f, "Pos4");
         configParam(WAVE_PARAM, -2.f, 2.f, 0.f, "Wave");
-        configParam(T_RAD_PARAM, 0.1f, 1.5f, 0.5f, "Time Radius");
-        configParam(A_PARAM, -PI, PI, 0.f, "A");
-        configParam(B_PARAM, -PI, PI, 0.f, "B");
-        configParam(ITER1_PARAM, 1.f, 5.f, 1.f, "Current1");
-        configParam(ITER2_PARAM, 1.f, 5.f, 1.f, "Current2");
-        configParam(ITER3_PARAM, 1.f, 5.f, 1.f, "Current3");
-        configParam(ITER4_PARAM, 1.f, 5.f, 1.f, "Current4");
-
-
+        configParam(T_RAD_PARAM, 0.f, 1.5f, 0.5f, "Gain");
+        configParam(A_PARAM, -PI, PI, 0.f, "Alpha");
+        configParam(B_PARAM, -PI, PI, 0.f, "Beta");
+        configParam(ITER1_PARAM, 1.f, 5.f, 1.f, "Pull1");
+        configParam(ITER2_PARAM, 1.f, 5.f, 1.f, "Pull2");
+        configParam(ITER3_PARAM, 1.f, 5.f, 1.f, "Pull3");
+        configParam(ITER4_PARAM, 1.f, 5.f, 1.f, "Pull4");
         configParam(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Range");
-
+        for (int i = 0; i < 3; ++i) {
+            configParam(OFFSET_PARAMS + i, -12.f, 12.f, 0.f, "offset");
+        }
     }
 
 
@@ -238,6 +239,11 @@ struct SimoneModule : Module
         dcRemoveY.setCutoffFreq(10.6f / args.sampleRate);
     }
 
+    float exponlerp(float newmin, float newmax, float oldmin, float oldmax, float pos) {
+
+        return newmin * pow((newmax / newmin), ((pos - oldmin) / (oldmax - oldmin)));
+    }
+
     void buildParams(const ProcessArgs& args) {
 
         Buttons.incrementButton(params[RANGE_BUTTON_PARAM].value, &setRange, 3, &rangetype);
@@ -256,19 +262,29 @@ struct SimoneModule : Module
             break;
         }
         case 2: {
-            range = 65.4;
+            range = 130.8; //65.4;
             paramQuantities[RANGE_BUTTON_PARAM]->name = "Voice";
             break;
         }
         }
-
+        //need 0 -> 1, 1 -> 2, & -1 -> 0.5
+        
+        float pitchoffset[3];
+        /*float paroffset[3]{ (params[OFFSET_PARAMS + 0].value / 12.f),
+                                (params[OFFSET_PARAMS + 1].value / 12.f),
+                                (params[OFFSET_PARAMS + 2].value / 12.f) };*/
+        for (int i = 0; i < 3; ++i) {
+            pitchoffset[i] = exponlerp(0.5f, 2.f, -1.f, 1.f, params[OFFSET_PARAMS + i].value / 12.f);
+        }
         float baseFreq = range;
         float basePitch = Functions.VoltToFreq(params[SPEED_PARAM].value, 0.0, baseFreq);
         float timePitch1 = (isinSpeed1) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED1_INPUT].getVoltage(0), 0.0, baseFreq) : basePitch;
-        float timePitch2 = (isinSpeed2) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED2_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch1;
-        float timePitch3 = (isinSpeed3) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED3_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch2;
-        float timePitch4 = (isinSpeed4) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED4_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch3;
-
+        float timePitch2 = ((isinSpeed2) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED2_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch1);
+        float timePitch3 = ((isinSpeed3) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED3_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch2);
+        float timePitch4 = ((isinSpeed4) ? Functions.VoltToFreq(params[SPEED_PARAM].value + inputs[SPEED4_INPUT].getVoltage(0), 0.0, baseFreq) : timePitch3);
+        timePitch2 *= pitchoffset[0];
+        timePitch3 *= pitchoffset[1];
+        timePitch4 *= pitchoffset[2];
         timePitch = rack::simd::float_4{ timePitch1, timePitch2, timePitch3, timePitch4 };
 
         wavepar = params[WAVE_PARAM].value; 
@@ -303,25 +319,35 @@ struct SimoneModule : Module
         rack::simd::float_4 FM = timePitch * (((isinFM) ? inputs[FM_INPUT].getVoltage(0) * params[FM_PARAM].value : params[FM_PARAM].value) + 1);
         float inPM = inputs[PM_INPUT].getVoltage(0) * (((isinPM) ? params[PM_PARAM].value : 1.f));
         rack::simd::float_4 PM = timePitch * inPM * args.sampleTime;
-            Functions.incrementPhase(FM, args.sampleRate, &DT, _2PI);
-            DT += PM;
+
+        Functions.incrementPhase(FM, args.sampleRate, &DT, _2PI);
+        DT += PM;
 
             float ain = (isinA) ? Functions.lerp(-PI, PI, -5, 5, inputs[A_INPUT].getVoltage(0)) : 0.0;
             float bin = (isinB) ? Functions.lerp(-PI, PI, -5, 5, inputs[B_INPUT].getVoltage(0)) : 0.0;
             a = rack::math::clamp(apar + ain, -_2PI, _2PI);
             b = rack::math::clamp(bpar + bin, -_2PI, _2PI);
 
-            float wavein = (isinWAVE) ? (Functions.lerp(-2, 2, -5, 5, inputs[WAVE_INPUT].getVoltage(0))) : 0.0;
-            wave = rack::math::clamp((wavein * wavepar) + (wavepar / 2), -2.f, 2.f);
+            float wavein = (isinWAVE) ? (Functions.lerp(-2, 2, -5, 5, inputs[WAVE_INPUT].getVoltage(0))) : 1.0;
+            wave = rack::math::clamp((wavein * wavepar), -2.f, 2.f);
 
-            float radin = (isinRAD) ? (abs(Functions.lerp(-1.5, 1.5, -5, 5, inputs[T_RAD_INPUT].getVoltage(0)))) : 0.0;
-            Tradius = rack::math::clamp(rad + (radin * rad - 0.1f), 0.1f, 1.5f);
+            float radin = (isinRAD) ? (abs(Functions.lerp(-1.5, 1.5, -5, 5, inputs[T_RAD_INPUT].getVoltage(0)))) : 1.0;
+            Tradius = rack::math::clamp((radin * rad), 0.f, 1.5f);
 
-            float InCurrent1 = rack::math::clamp(CurrentPar[0] + abs((isinIT1) ? inputs[ITER1_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            float InCurrent2 = rack::math::clamp(CurrentPar[1] + abs((isinIT2) ? inputs[ITER2_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            float InCurrent3 = rack::math::clamp(CurrentPar[2] + abs((isinIT3) ? inputs[ITER3_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            float InCurrent4 = rack::math::clamp(CurrentPar[3] + abs((isinIT4) ? inputs[ITER4_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            Current = std::vector<float>{ InCurrent1, InCurrent2, InCurrent3, InCurrent4 };
+            //float InCurrent1 = rack::math::clamp(CurrentPar[0] + abs((isinIT1) ? inputs[ITER1_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
+            //float InCurrent2 = rack::math::clamp(CurrentPar[1] + abs((isinIT2) ? inputs[ITER2_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
+            //float InCurrent3 = rack::math::clamp(CurrentPar[2] + abs((isinIT3) ? inputs[ITER3_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
+            //float InCurrent4 = rack::math::clamp(CurrentPar[3] + abs((isinIT4) ? inputs[ITER4_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
+            
+            float currentCasc1 = (isinIT1) ? abs(inputs[ITER1_INPUT].getVoltage(0)) : 0.f;
+            float currentCasc2 = (isinIT2) ? abs(inputs[ITER2_INPUT].getVoltage(0)) : currentCasc1;
+            float currentCasc3 = (isinIT3) ? abs(inputs[ITER3_INPUT].getVoltage(0)) : currentCasc2;
+            float currentCasc4 = (isinIT4) ? abs(inputs[ITER4_INPUT].getVoltage(0)) : currentCasc3;
+            float Incurrent1 = rack::math::clamp(CurrentPar[0] + (currentCasc1), 1.f, 8.f);
+            float Incurrent2 = rack::math::clamp(CurrentPar[1] + (currentCasc2), 1.f, 8.f);
+            float Incurrent3 = rack::math::clamp(CurrentPar[2] + (currentCasc3), 1.f, 8.f);
+            float Incurrent4 = rack::math::clamp(CurrentPar[3] + (currentCasc4), 1.f, 8.f);
+            Current = std::vector<float>{ Incurrent1, Incurrent2, Incurrent3, Incurrent4 };
             float placeCasc1 = (isinPOS1) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION1_INPUT].getVoltage(0)) : 0.f;
             float placeCasc2 = (isinPOS2) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION2_INPUT].getVoltage(0)) : placeCasc1;
             float placeCasc3 = (isinPOS3) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION3_INPUT].getVoltage(0)) : placeCasc2;
@@ -341,7 +367,6 @@ struct SimoneModule : Module
            
             //Current = CurrentPar + CurrentIn;
             for (int p = 0; p < maxsize; ++p) {
-
                 rack::simd::float_4 P(p);
                 rack::simd::float_4 Xsprev = Xs;
                 rack::simd::float_4 Ysprev = Ys;
@@ -359,8 +384,8 @@ struct SimoneModule : Module
                     }
                     
                 }
-
             }
+
             rack::simd::float_4 Xoutend = Xouts;
             rack::simd::float_4 Youtend = Youts;
             if (rangetype == 2) {
@@ -382,14 +407,14 @@ struct SimoneModule : Module
 
             float mixX = 0.f;
             for (int m = 0; m < 4; ++m) {
-                mixX += Xouts[m];
+                mixX += Xoutend[m] * 2.f;
             }
 
             outputs[MIX_X_OUTPUT].setVoltage(mixX, 0);
 
             float mixY = 0.f;
             for (int m = 0; m < 4; ++m) {
-                mixY += Youts[m];
+                mixY += Youtend[m] * 2.f;
             }
             outputs[MIX_Y_OUTPUT].setVoltage(mixY, 0);
     }
@@ -583,6 +608,10 @@ struct SimonePanelWidget : ModuleWidget {
         addParam(createParam<RoundSmallBlackKnob>(Vec(231, 269), module, SimoneModule::ITER2_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(231, 303), module, SimoneModule::ITER3_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(231, 338), module, SimoneModule::ITER4_PARAM));
+        addParam(createParam<Trimpot>(Vec(105, 251), module, SimoneModule::OFFSET_PARAMS + 0));
+        addParam(createParam<Trimpot>(Vec(178, 251), module, SimoneModule::OFFSET_PARAMS + 1));
+        addParam(createParam<Trimpot>(Vec(205, 226), module, SimoneModule::OFFSET_PARAMS + 2));
+
         
         addParam(createParam<VCVButton>(Vec(270, 75), module, SimoneModule::RANGE_BUTTON_PARAM));
 
@@ -614,8 +643,8 @@ struct SimonePanelWidget : ModuleWidget {
         addOutput(createOutput<PurplePort>(Vec(153.5, 338), module, SimoneModule::Y_3_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(185, 295), module, SimoneModule::X_4_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(185, 324), module, SimoneModule::Y_4_OUTPUT));
-        addOutput(createOutput<PurplePort>(Vec(122.5, 272), module, SimoneModule::MIX_X_OUTPUT));
-        addOutput(createOutput<PurplePort>(Vec(153.5, 272), module, SimoneModule::MIX_Y_OUTPUT));
+        addOutput(createOutput<PurplePort>(Vec(122.5, 278), module, SimoneModule::MIX_X_OUTPUT));
+        addOutput(createOutput<PurplePort>(Vec(153.5, 278), module, SimoneModule::MIX_Y_OUTPUT));
 
         
         if (module) {
