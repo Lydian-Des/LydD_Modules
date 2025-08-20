@@ -16,6 +16,7 @@ struct PurplePort : app::SvgPort {
         setSvg(Svg::load(asset::plugin(pluginInstance, "res/PurpleJack23px.svg")));
     }
 };
+
 extern Model* modelPoppy;
 extern Model* modelDadMom;
 extern Model* modelSimone;

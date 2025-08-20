@@ -1,5 +1,5 @@
 
-#include "demo-plugin.hpp"
+#include "plugin.hpp"
 #include <vector>
 
 
