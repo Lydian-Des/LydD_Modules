@@ -56,6 +56,7 @@ struct SimoneModule : Module
         POSITION4_PARAM,
         WAVE_PARAM,
         T_RAD_PARAM,
+        GAIN_ATTEN_PARAM,
         A_PARAM,
         B_PARAM,
         ITER1_PARAM,
@@ -115,6 +116,7 @@ struct SimoneModule : Module
         configParam(POSITION4_PARAM, -1.5, 1.5, 0.0f, "Pos4");
         configParam(WAVE_PARAM, -2.f, 2.f, 0.f, "Wave");
         configParam(T_RAD_PARAM, 0.f, 1.5f, 0.5f, "Gain");
+        configParam(GAIN_ATTEN_PARAM, -1.f, 1.f, 0.f, "Gain Atternuverter");
         configParam(A_PARAM, -PI, PI, 0.f, "Alpha");
         configParam(B_PARAM, -PI, PI, 0.f, "Beta");
         configParam(ITER1_PARAM, 1.f, 5.f, 1.f, "Pull1");
@@ -152,6 +154,7 @@ struct SimoneModule : Module
     float wavepar = 0.f;
     float wave = 0.f;
     float rad = 0.5;
+    float radatten = 0.f;
     float Tradius = 0.5;
     bool isinA = false;
     bool isinB = false;
@@ -289,6 +292,7 @@ struct SimoneModule : Module
 
         wavepar = params[WAVE_PARAM].value; 
         rad = params[T_RAD_PARAM].value;
+        radatten = params[GAIN_ATTEN_PARAM].value;
         
 
         apar = params[A_PARAM].value;
@@ -332,7 +336,7 @@ struct SimoneModule : Module
             wave = rack::math::clamp((wavein * wavepar), -2.f, 2.f);
 
             float radin = (isinRAD) ? (abs(Functions.lerp(-1.5, 1.5, -5, 5, inputs[T_RAD_INPUT].getVoltage(0)))) : 1.0;
-            Tradius = rack::math::clamp((radin * rad), 0.f, 1.5f);
+            Tradius = rack::math::clamp(rad + (radin * radatten), 0.f, 1.5f);
 
             //float InCurrent1 = rack::math::clamp(CurrentPar[0] + abs((isinIT1) ? inputs[ITER1_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
             //float InCurrent2 = rack::math::clamp(CurrentPar[1] + abs((isinIT2) ? inputs[ITER2_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
@@ -602,6 +606,7 @@ struct SimonePanelWidget : ModuleWidget {
         addParam(createParam<RoundSmallBlackKnob>(Vec(43, 338), module, SimoneModule::POSITION4_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(40, 119), module, SimoneModule::WAVE_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(40, 160), module, SimoneModule::T_RAD_PARAM));
+        addParam(createParam<Trimpot>(Vec(40, 192), module, SimoneModule::GAIN_ATTEN_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(40, 37), module, SimoneModule::A_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(40, 78), module, SimoneModule::B_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(231, 235), module, SimoneModule::ITER1_PARAM));
