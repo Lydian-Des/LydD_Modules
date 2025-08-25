@@ -3,6 +3,8 @@
 #include "plugin.hpp"
 #include <complex>
 #include <cmath>
+#include <map>
+#include <functional>
 #include <vector>
 
 
@@ -44,7 +46,7 @@ struct Brots {
         return tan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
     }
 
-
+    std::function<std::complex<float>(float, std::complex<float>, std::complex<float>)> brotype;
 
 };
 
@@ -59,6 +61,7 @@ struct PoppyModule : Module
         EXP_X_PARAM,
         ITERS_PARAM,
         SEQ_START_PARAM,
+        SHIFT_REGISTER_PARAM,
         RANGE_SWITCH_PARAM,
         Y_RANGE_SWITCH_PARAM,
         MOVE_X_PARAM,
@@ -99,6 +102,8 @@ struct PoppyModule : Module
 	enum OutputIds {
         X_CV_OUTPUT,
         Y_CV_OUTPUT,
+        XSHIFT_CV_OUTPUT,
+        YSHIFT_CV_OUTPUT,
         X_TRIG_OUTPUT,
         Y_TRIG_OUTPUT,
         AUX_OUTPUT,
@@ -127,6 +132,8 @@ struct PoppyModule : Module
         paramQuantities[ITERS_PARAM]->snapEnabled = true;
         configParam(SEQ_START_PARAM, 0, 127, 0, "Start Point");
         paramQuantities[SEQ_START_PARAM]->snapEnabled = true;
+        configParam(SHIFT_REGISTER_PARAM, 1, 4, 1, "Shift");
+        paramQuantities[SHIFT_REGISTER_PARAM]->snapEnabled = true;
         configParam(SLEW_X_PARAM, 0, 1, 0, "Slew X");
         configParam(SLEW_Y_PARAM, 0, 1, 0, "Slew Y");
         configParam(MOVE_X_PARAM, -1.8, 1.8, 0, "Move-X");
@@ -160,8 +167,10 @@ struct PoppyModule : Module
         configInput(SEQ_LENGTH_INPUT, "Sequence Length");
         
         configOutput(X_CV_OUTPUT, "X CV Out");
+        configOutput(XSHIFT_CV_OUTPUT, "X Shift register CV Out");
         configOutput(X_TRIG_OUTPUT, "X trig Out");
         configOutput(Y_CV_OUTPUT, "Y CV Out");
+        configOutput(YSHIFT_CV_OUTPUT, "Y Shift Register CV Out");
         configOutput(Y_TRIG_OUTPUT, "Y trig Out");
         configOutput(AUX_OUTPUT, "Aux Out");
     }
@@ -244,15 +253,18 @@ struct PoppyModule : Module
 
     int Xstep = 0;
     int Ystep = 0;
+    int shiftOffset = 0;
+    int XshiftStep = 0;
+    int YshiftStep = 0;
     int seqstart = 0;
     int seqsize = iters;
     int Xseqstep = 0;
     int Yseqstep = 0;
-    float zoomSpread = 1.f;
-    float cvValX = 0.f;
-    float cvValY = 0.f;   
+    float zoomSpread = 1.f;   
     float nowX = 0;
     float nowY = 0;
+    float shiftnowX = 0;
+    float shiftnowY = 0;
     float dtX = 0;
     float dtY = 0;
     float speedX = 0;
@@ -374,28 +386,7 @@ struct PoppyModule : Module
 
         
 
-        seqsize = params[ITERS_PARAM].value;
-        if (inSizeconnect) {
-            seqsize = (int)Funct.lerp(1, 127, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
-            seqsize = seqsize > 1 ? seqsize : 1;
-        }
-        seqstart = params[SEQ_START_PARAM].value;
-        if (inStartconnect) {
-            seqstart = (int)Funct.lerp(0, 127, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
-            seqstart = seqstart > 0 ? seqstart : 0;
-        }
-        if ((inResetconnect && inputs[RESET_INPUT].getVoltage(0) > 1.0f) | reset) {
-            Xseqstep = 0;
-            Yseqstep = 0;
-        }
-        if (inReverseconnect) {
-            if (inputs[REVERSE_INPUT].getVoltage(0) > 1.0f) {
-                reverse = true;
-            }
-            else {
-                reverse = false;
-            }
-        }
+        
         
         button.incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
         button.incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
@@ -409,14 +400,33 @@ struct PoppyModule : Module
         button.momentButton(params[C_TO_MOVE_BUTTON_PARAM].value, &CtoMove, &CM);
         button.momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
 
-        
-      
-            
+        shiftOffset = params[SHIFT_REGISTER_PARAM].value;
+        seqsize = params[ITERS_PARAM].value;
+        if (inSizeconnect) {
+            seqsize = (int)Funct.lerp(1, 127, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
+            seqsize = seqsize > 1 ? seqsize : 1;
+        }
+        seqstart = params[SEQ_START_PARAM].value;
+        if (inStartconnect) {
+            seqstart = (int)Funct.lerp(0, 127, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
+            seqstart = seqstart > 0 ? seqstart : 0;
+        }
+        if (inResetconnect) {
+            button.momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
+        }
+        if (reset) {
+            Xseqstep = 0;
+            Yseqstep = 0;
+        }
+        if (inReverseconnect) {
+            button.latchButton(inputs[REVERSE_INPUT].getVoltage(0), &reverse, &rev);
+        }
+           
+
         xCoord.clear();
         yCoord.clear();
         
-        //need location C points at to become location MOVE points at
-        // based on current MOVE location and current Zoom value
+
         float Cxpar = params[C_X_PARAM].value;
         float Cypar = params[C_YI_PARAM].value;
         float Cxloc = Funct.lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, Cxpar);
@@ -569,20 +579,29 @@ struct PoppyModule : Module
 
     void generateOutput(const ProcessArgs& args) {
      
-        Ystep = (Yseqstep + seqstart) % iters;
-        Xstep = (Xseqstep + seqstart) % iters;
         
+        Xstep = (Xseqstep + seqstart) % iters;
+        XshiftStep = (Xseqstep + seqstart - shiftOffset) % iters;
+        XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
+        Ystep = (Yseqstep + seqstart) % iters;
+        YshiftStep = (Yseqstep + seqstart - shiftOffset) % iters;
+        YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
+
         if (!julia) {
             Mutate = rack::dsp::sqrtBipolar((Zx * Zx) + (Zyi * Zyi)) ;
         }
         else {
             Mutate = rack::dsp::sqrtBipolar((Cx * Cx) + (Cyi * Cyi));
         }
-        cvValX = xCoord[Xstep]; // Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, xCoord[Xstep]);
-        cvValY = yCoord[Ystep]; //Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, yCoord[Ystep]);
+        float cvValX = xCoord[Xstep]; // Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, xCoord[Xstep]);
+        float cvValY = yCoord[Ystep]; //Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, yCoord[Ystep]);
+        float shiftValX = xCoord[XshiftStep];
+        float shiftValY = yCoord[YshiftStep];
         if (invert) {
             cvValX = -cvValX;
             cvValY = -cvValY;
+            shiftValX = -shiftValX;
+            shiftValY = -shiftValY;
             lights[INVERT_LIGHT].setBrightness(1.f);
         }
         else {
@@ -590,15 +609,17 @@ struct PoppyModule : Module
         }
         cvValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
         cvValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
+        shiftValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
+        shiftValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
 
         bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.1f);
         if (xClose) {
-            cvValX += Zx / 2.f;
+            cvValX += 0.583333;
         }
 
         bool yClose = rack::math::isNear(yCoord[abs(Ystep - 1)], yCoord[Ystep], 0.1f);
         if (yClose) {
-            cvValY += Zyi / 2.f;
+            cvValY += 0.583333;
 
         }
 
@@ -630,6 +651,7 @@ struct PoppyModule : Module
                     Xseqstep = seqsize;
                 }
                 nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX);
+                shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX);
                 dtX = timestepX;
                 timerX.reset();
             }
@@ -658,6 +680,7 @@ struct PoppyModule : Module
                     Yseqstep = seqsize;
                 }
                 nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY);
+                shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY);
                 dtY = timestepY;
                 timerY.reset();
             }
@@ -674,10 +697,12 @@ struct PoppyModule : Module
             float slewingX = _slewlimitX.process(args.sampleTime, nowX);
             outputs[X_CV_OUTPUT].setVoltage(slewingX, 0);
 
+            outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
+
             float slewingY = _slewlimitY.process(args.sampleTime, nowY);
             outputs[Y_CV_OUTPUT].setVoltage(slewingY, 0);
 
-                
+            outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
 
         switch (auxType) {
             
@@ -914,7 +939,7 @@ struct FracWidget : Widget {
                                     pic.Kvals[(indexsmall) * 4 + 0] += abs(real(Z) - real(Ztemp)) * 30;
                                     pic.Kvals[(indexsmall) * 4 + 1] += k * 2 + imag(Z);
                                     pic.Kvals[(indexsmall) * 4 + 2] += 205 - abs(imag(Z));
-                                    pic.Kvals[(indexsmall) * 4 + 3] += 15;
+                                    pic.Kvals[(indexsmall) * 4 + 3] += (pic.Kvals[(indexsmall) * 4 + 3] < 240) ? 15 : 0;
                                     
                                 }
                             }
@@ -1031,8 +1056,8 @@ struct PoppyWidget : ModuleWidget {
 
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(135, 185), module, PoppyModule::FRACTAL_TYPE_LIGHT));
         addChild(createLightCentered<MediumLight<BlueLight>>(Vec(167, 185), module, PoppyModule::JULIA_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(206, 243), module, PoppyModule::AUX_TYPE_LIGHT));
-        addChild(createLightCentered<MediumLight<BlueLight>>(Vec(190, 331), module, PoppyModule::INVERT_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(190, 305), module, PoppyModule::AUX_TYPE_LIGHT));
+        addChild(createLightCentered<MediumLight<BlueLight>>(Vec(187, 241), module, PoppyModule::INVERT_LIGHT));
         addChild(createLightCentered<MediumLight<BlueLight>>(Vec(108, 331), module, PoppyModule::MIRROR_LIGHT));
 
         addInput(createInput<PurplePort>(Vec(10, 30), module, PoppyModule::CLOCK_INPUT));
@@ -1056,6 +1081,7 @@ struct PoppyWidget : ModuleWidget {
         addParam(createParam<RoundBlackKnob>(Vec(76, 173), module, PoppyModule::EXP_X_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(231, 191), module, PoppyModule::ITERS_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(212, 156), module, PoppyModule::SEQ_START_PARAM));
+        addParam(createParam<Trimpot>(Vec(199, 268), module, PoppyModule::SHIFT_REGISTER_PARAM));
         addParam(createParam<RoundHugeBlackKnob>(Vec(123.081, 205), module, PoppyModule::C_X_PARAM));
         addParam(createParam<RoundBlackKnob>(Vec(135.826, 217.8), module, PoppyModule::C_YI_PARAM));
         addParam(createParam<RoundHugeBlackKnob>(Vec(237, 26.5), module, PoppyModule::MOVE_X_PARAM));
@@ -1078,6 +1104,8 @@ struct PoppyWidget : ModuleWidget {
         addParam(createParam<PurpleSwitch>(Vec(231.5, 229), module, PoppyModule::RANGE_SWITCH_PARAM));
         addParam(createParam<PurpleSwitch>(Vec(262.5, 229), module, PoppyModule::Y_RANGE_SWITCH_PARAM));
 
+        addOutput(createOutput<PurplePort>(Vec(232, 269), module, PoppyModule::XSHIFT_CV_OUTPUT));
+        addOutput(createOutput<PurplePort>(Vec(267, 269), module, PoppyModule::YSHIFT_CV_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(232, 300), module, PoppyModule::X_CV_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(267, 300), module, PoppyModule::Y_CV_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(232, 331), module, PoppyModule::X_TRIG_OUTPUT));
