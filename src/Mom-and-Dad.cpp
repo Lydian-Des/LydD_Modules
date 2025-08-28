@@ -12,6 +12,7 @@ static const int maxPolyphony = 1;
 
 class Lines {
 private:
+    //each float_4 of each vect is a point: x, y, z, w
     std::vector<rack::simd::float_4> Spawnline;
     std::vector<rack::simd::float_4> Momline;
     std::vector<rack::simd::float_4> Dadline;
@@ -39,61 +40,28 @@ public:
 };
 
 struct MomDadEq {
-    float MomDadX(float a, float b, float g, float o, float x, float y, float z, float w, float dt) {
-        float dx = ((a * x) - (z * y) - w) / dt;
-        return x + dx;
 
-    }
-    float MomDadY(float a, float b, float g, float o, float x, float y, float z, float w, float dt) {
+       
 
-        float dy = ((x * z) - (b * y) + z) / dt;
-        return y + dy;
 
-    }
-    float MomDadZ(float a, float b, float g, float o, float x, float y, float z, float w, float dt) {
-
-        float dz = ((x * y) - (g * z) + x) / dt;
-        return z + dz;
-
-    }
-    float MomDadW(float a, float b, float g, float o, float x, float y, float z, float w, float dt) {
-
-        //float dw = ((-w * z) / (o - x)) / dt;								//scrawl
-        float dw = ((-x * z) - (o * w)) / dt;							//wander
-        return w + dw;
-    }
-
-    rack::simd::float_4 MOMDAD(float a, float b, float g, float o, float dt, rack::simd::float_4 Coord) {
+    rack::simd::float_4 MOMDAD(float a, float b, float g, float o, float dt, rack::simd::float_4 Coord, bool wType) {
+        //Coord given as X, Y, Z, W
+        
         float dx = ((a * Coord[0]) - (Coord[2] * Coord[1]) - Coord[3]) / dt;
         float dy = ((Coord[0] * Coord[2]) - (b * Coord[1]) + Coord[2]) / dt;
         float dz = ((Coord[0] * Coord[1]) - (g * Coord[2]) + Coord[0]) / dt;
-        float dw = ((-Coord[0] * Coord[2]) - (o * Coord[3])) / dt;							//wander
+        float dw = 0.f;
+        if (!wType) {
+            dw = ((-Coord[0] * Coord[2]) - (o * Coord[3])) / dt;	//wander
+        }
+        else {
+            dw = ((-Coord[3] * Coord[2]) / (o - Coord[0])) / dt;		//scrawl
+        }
+        
         return Coord + rack::simd::float_4{ dx, dy, dz, dw };
     }
 
-    rack::simd::float_4 MomDadX(float a, rack::simd::float_4 x, rack::simd::float_4 y, rack::simd::float_4 z, rack::simd::float_4 w, rack::simd::float_4 dt) {
-        rack::simd::float_4 dx = ((a * x.v) - (z.v * y.v) - w.v) / dt.v;
-        return x.v + dx.v;
 
-    }
-    rack::simd::float_4 MomDadY(float b, rack::simd::float_4 x, rack::simd::float_4 y, rack::simd::float_4 z, rack::simd::float_4 w, rack::simd::float_4 dt) {
-
-        rack::simd::float_4 dy = ((x.v * z.v) - (b * y.v) + z.v) / dt.v;
-        return y.v + dy.v;
-
-    }
-    rack::simd::float_4 MomDadZ(float g, rack::simd::float_4 x, rack::simd::float_4 y, rack::simd::float_4 z, rack::simd::float_4 w, rack::simd::float_4 dt) {
-
-        rack::simd::float_4 dz = ((x.v * y.v) - (g * z.v) + x.v) / dt.v;
-        return z.v + dz.v;
-
-    }
-    rack::simd::float_4 MomDadW(float o, rack::simd::float_4 x, rack::simd::float_4 y, rack::simd::float_4 z, rack::simd::float_4 w, rack::simd::float_4 dt) {
-
-        //float dw = ((-wprev * zprev) / (d - xprev)) / dt;								//scrawl
-        rack::simd::float_4 dw = ((-x.v * z.v) - (o * w.v)) / dt.v;							//wander
-        return w.v + dw.v;
-    }
 };
 
 struct DadrasModule : Module
@@ -106,6 +74,7 @@ struct DadrasModule : Module
         SYNCH_BUTTON_PARAM,
         RESET_BUTTON_PARAM,
         AXIS_SWITCH_PARAM,
+        WTYPE_BUTTON_PARAM,
         INFLUENCE_DAD_PARAM,
         INFLUENCE_MOM_PARAM,
         A_PARAM,
@@ -145,6 +114,7 @@ struct DadrasModule : Module
         NUM_OUTPUTS
 	};
 	enum LightIds {
+        ENUMS(WTYPE_LIGHT, 2),
         NUM_LIGHTS
     };
 
@@ -164,6 +134,8 @@ struct DadrasModule : Module
         configParam(SYNCH_BUTTON_PARAM, 0.f, 1.f, 0.f, "Synchronize");
         configParam(RESET_BUTTON_PARAM, 0.f, 1.f, 0.f, "Reset");
         configParam(AXIS_SWITCH_PARAM, 0.f, 2.f, 0.f, "Axis");
+        configParam(WTYPE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Wander");
+
     }
   
     BaseFunctions Functions;
@@ -177,8 +149,11 @@ struct DadrasModule : Module
     float runSpeed = 20.f;
     bool synchro = false;
     bool syn = false;
-    bool reset = false;
+    bool reSet = false;
+    bool reReset = false;
     bool rev = false;
+    bool WSet = false;
+    bool WReset = false;
 
     float dt = 900;
     float a = 7.6;
@@ -225,15 +200,11 @@ struct DadrasModule : Module
    
 
 
-    void process(const ProcessArgs& args) override {
-
-      
+    void process(const ProcessArgs& args) override {     
         if (loopCounter % 32 == 0) {
-         
             checkInputs(args);
-
         }
-        if (loopCounter % 2056 == 0) {
+        if (loopCounter % 2520 == 0) {
             dirty = true;
             loopCounter = 0;
         }
@@ -249,10 +220,24 @@ struct DadrasModule : Module
     void checkInputs(const ProcessArgs& args) {
 
         axis = (int)params[AXIS_SWITCH_PARAM].value;
-        reset = params[RESET_BUTTON_PARAM].value == 1.f || inputs[RESET_INPUT].getVoltage(0) >= 1.f;
-        float synchpress = std::max((params[SYNCH_BUTTON_PARAM].value), ((inputs[SYNCH_INPUT].isConnected()) ? abs(inputs[SYNCH_INPUT].getVoltage(0)) : 0));
-        Buttons.momentButton(synchpress, &synchro, &syn);
-        //synchro = params[SYNCH_BUTTON_PARAM].value == 1.f || inputs[SYNCH_INPUT].getVoltage(0) >= 1.f;
+
+        Buttons.momentButton(params[RESET_BUTTON_PARAM].value, &reSet, &reReset);
+        if (inputs[RESET_INPUT].isConnected()) {
+            Buttons.momentButton(inputs[RESET_INPUT].getVoltage(0), &reSet, &reReset);
+        }
+
+        Buttons.momentButton(params[SYNCH_BUTTON_PARAM].value, &synchro, &syn);
+        if (inputs[SYNCH_INPUT].isConnected()) {
+            Buttons.momentButton(inputs[SYNCH_INPUT].getVoltage(0), &synchro, &syn);
+        }
+
+        Buttons.latchButton(params[WTYPE_BUTTON_PARAM].value, &WSet, &WReset);
+        lights[WTYPE_LIGHT + 0].setBrightness(!WSet);
+        lights[WTYPE_LIGHT + 1].setBrightness(WSet);
+        if (WSet) {
+            paramQuantities[WTYPE_BUTTON_PARAM]->name = "Scratch";
+        }
+
         float A = params[A_PARAM].value;
         float B = params[B_PARAM].value;
         float G = params[G_PARAM].value;
@@ -302,26 +287,18 @@ struct DadrasModule : Module
         
     }
 
-    void generateOutput(const ProcessArgs& args) {
-      
-        
-        
-        
-        
+    void generateOutput(const ProcessArgs& args) {   
         float dtL = dt + (phaseShift * 100);
         float dtR = dt - (phaseShift * 100);
-   
-        
+           
         if (synchro) {
             CoordL = CoordC;
             CoordR = CoordC;
-
         }
-        if (reset) {
+        if (reSet) {
             CoordC = Start;
             CoordL = Start;
             CoordR = Start;
-
         }
 
         for (int p = 0; p < 4; ++p) {
@@ -340,52 +317,62 @@ struct DadrasModule : Module
         rack::simd::float_4 CoordprevL = CoordL + Spread;
         rack::simd::float_4 CoordprevR = CoordR - Spread;
 
-        if (Phase[0] <= 2 * PI) {
+        if (Phase[0] <= PI) {
             click1 = true;
         }
-        if (Phase[1] <= 2 * PI) {
+        if (Phase[1] <= PI) {
             click2 = true;
         }
-        if (Phase[2] <= 2 * PI) {
+        if (Phase[2] <= PI) {
             click3 = true;
         }
-        if (Phase[0] > 2 * PI && click1) {
+        if (Phase[0] > PI && click1) {
             lines->build(CoordC, CoordL, CoordR);
 
             CoordprevC += Functions.incrementToward(CoordprevC, CoordL, 100) * momsInf;
             CoordprevC += Functions.incrementToward(CoordprevC, CoordR, 100) * dadsInf;
-            CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC);
+            CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
             
             click1 = false;
         }
-        if (Phase[1] > 2 * PI && click2) {
+        if (Phase[1] > PI && click2) {
 
-            CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL);
+            CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
 
             click2 = false;
         }
-        if (Phase[2] > 2 * PI && click3) {
+        if (Phase[2] > PI && click3) {
 
-            CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR);
+            CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
 
 
             click3 = false;
         }
-            
+        float outputC[4];
+        float outputL[4];
+        float outputR[4];
+        for (int i = 0; i < 4; ++i) {
+            outputC[i] = Functions.lerp(-5.f, 5.f, -bounds, bounds, CoordC[i]);
+            outputC[i] = rack::math::clamp(outputC[i], -5.f, 5.f);
+            outputL[i] = Functions.lerp(-5.f, 5.f, -bounds, bounds, CoordL[i]);
+            outputL[i] = rack::math::clamp(outputL[i], -5.f, 5.f);
+            outputR[i] = Functions.lerp(-5.f, 5.f, -bounds, bounds, CoordR[i]);
+            outputR[i] = rack::math::clamp(outputR[i], -5.f, 5.f);
+        }
         
           
-            outputs[C_X_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordC[0]), 0);
-            outputs[C_Y_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordC[1]), 0);
-            outputs[C_Z_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordC[2]), 0);
-            outputs[C_W_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds, bounds, CoordC[3]), 0);
-            outputs[L_X_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordL[0]), 0);
-            outputs[L_Y_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordL[1]), 0);
-            outputs[L_Z_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordL[2]), 0);
-            outputs[L_W_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds, bounds, CoordL[3]), 0);
-            outputs[R_X_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordR[0]), 0);
-            outputs[R_Y_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordR[1]), 0);
-            outputs[R_Z_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds + 100, bounds - 100, CoordR[2]), 0);
-            outputs[R_W_OUTPUT].setVoltage(Functions.lerp(-5, 5, -bounds, bounds, CoordR[3]), 0);
+            outputs[C_X_OUTPUT].setVoltage(outputC[0], 0);
+            outputs[C_Y_OUTPUT].setVoltage(outputC[1], 0);
+            outputs[C_Z_OUTPUT].setVoltage(outputC[2], 0);
+            outputs[C_W_OUTPUT].setVoltage(outputC[3], 0);
+            outputs[L_X_OUTPUT].setVoltage(outputL[0], 0);
+            outputs[L_Y_OUTPUT].setVoltage(outputL[1], 0);
+            outputs[L_Z_OUTPUT].setVoltage(outputL[2], 0);
+            outputs[L_W_OUTPUT].setVoltage(outputL[3], 0);
+            outputs[R_X_OUTPUT].setVoltage(outputR[0], 0);
+            outputs[R_Y_OUTPUT].setVoltage(outputR[1], 0);
+            outputs[R_Z_OUTPUT].setVoltage(outputR[2], 0);
+            outputs[R_W_OUTPUT].setVoltage(outputR[3], 0);
 
     }
 };
@@ -436,11 +423,11 @@ struct DadWidget : Widget{
             int drawboxY = box.size.y;
             int bound = Momeni->bounds;
             
-            if (Momeni->axis == 2) {
-                addSpin = true;
-            }
+            
                    
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
+
+            //drawing a little room for the snakes to live in
             nvgStrokeWidth(args.vg, 1.2);
             nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
             nvgFillColor(args.vg, nvgRGBAf(0.68, 0.57, 0.91, 0.21));
@@ -516,9 +503,12 @@ struct DadWidget : Widget{
             nvgFill(args.vg);
             
 
-
-           
+            if (Momeni->axis == 2) {
+                addSpin = true;
+            }
+           //very slowly rock back and forth at different speeds along each axis
             if (frames % 4 == 0) {
+                //how do i account for this window without all these damned IF's?
                 if (spinX[0] <= 0) {
                     tiltback = false;
                 }
@@ -540,7 +530,7 @@ struct DadWidget : Widget{
                 if (spinW[0] <= 0) {
                     tiltbackW = false;
                 }
-                if (spinW[0] >= 720) {
+                if (spinW[0] >= 360) {
                     tiltbackW = true;
                 }
                 if (tiltback) {
@@ -579,9 +569,9 @@ struct DadWidget : Widget{
             Momeni->lines->peekMom(&Momp);
             std::vector<rack::simd::float_4> Dadp;
             Momeni->lines->peekDad(&Dadp);
-
+            //all three vecs will always be the same size, so only have to check with one.
             for (int s = 0; s < (int)Spawnp.size(); ++s) {
-
+                //just a whole fuckton of matrix multiplication to draw these snake lines. really?
                 rack::simd::float_4 Zero = 0;
                 std::vector<rack::simd::float_4> rotationYZ = Matrix.RotationYZ(spinX);
                 std::vector<rack::simd::float_4> rotationXZ = Matrix.RotationXZ(spinY);
@@ -632,6 +622,7 @@ struct DadWidget : Widget{
                 rack::simd::float_4 disprev1 = LinesProjectprev[0];
                 rack::simd::float_4 disprev2 = LinesProjectprev[1];
                 rack::simd::float_4 disprev3 = LinesProjectprev[2];
+                //change which pair gets displayed as the X and Y coordinates
                 float line1screenX = disp1[0];
                 float line1screenY = disp1[1];
                 float line1screenXprev = disprev1[0];
@@ -674,9 +665,7 @@ struct DadWidget : Widget{
 
                 float rotscreenX3 = Functions.lerp(0, drawboxX, -bound, bound, line3screenX);
                 float rotscreenY3 = Functions.lerp(0, drawboxY, -bound, bound, -line3screenY);
-
-
-                
+               
                 float rotscreenX1prev = Functions.lerp(0, drawboxX, -bound, bound, line1screenXprev);
                 float rotscreenY1prev = Functions.lerp(0, drawboxY, -bound, bound, -line1screenYprev);
 
@@ -697,26 +686,20 @@ struct DadWidget : Widget{
                 nvgStrokeColor(args.vg, nvgRGBAf(0.0, 0.9, 1.0, OP));
                 nvgStroke(args.vg);
 
-                //nvgFillColor(args.vg, nvgRGBAf(0.0, 1.0, 1.0, 1.0));
                 nvgBeginPath(args.vg);
-                //nvgRect(args.vg, TailX2[s], TailY2[s], 1, 1);
-                //nvgFill(args.vg);
                 nvgMoveTo(args.vg, rotscreenX2prev, rotscreenY2prev);
                 nvgLineTo(args.vg, rotscreenX2, rotscreenY2);
                 nvgStrokeWidth(args.vg, OP + 0.2);
                 nvgStrokeColor(args.vg, nvgRGBAf(0.8, 0.9, 0.0, OP));
                 nvgStroke(args.vg);
 
-                //nvgFillColor(args.vg, nvgRGBAf(1.0, 0.5, 0.0, 1.0));
                 nvgBeginPath(args.vg);
-                //nvgRect(args.vg, TailX3[s], TailY3[s], 1, 1);
-                //nvgFill(args.vg);
                 nvgMoveTo(args.vg, rotscreenX3prev, rotscreenY3prev);
                 nvgLineTo(args.vg, rotscreenX3, rotscreenY3);
                 nvgStrokeWidth(args.vg, OP + 0.2);
                 nvgStrokeColor(args.vg, nvgRGBAf(0.8, 0.0, 0.9, OP));
                 nvgStroke(args.vg);
-
+                //draw little ellipses on the sneks heads
                 if (s == (int)Spawnp.size() - 1) {
                     nvgBeginPath(args.vg);
                     nvgEllipse(args.vg, rotscreenX1, rotscreenY1, 2 + (abs(rotscreenX1 - rotscreenX1prev) / 2), 2 + (abs(rotscreenY1 - rotscreenY1prev) / 2));
@@ -747,13 +730,14 @@ struct DadWidget : Widget{
 struct DadrasWidget : ModuleWidget {
     DadrasWidget(DadrasModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/lorenz_panel.svg")));
+		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Dadras_panel.svg")));
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 365)));
 
+        addChild(createLightCentered<MediumLight<GreenRedLight>>(Vec(212, 74), module, DadrasModule::WTYPE_LIGHT));
 
         addParam(createParam<RoundLargeBlackKnob>(Vec(82, 158), module, DadrasModule::SPEED_PARAM));
         addParam(createParam<RoundBlackKnob>(Vec(162, 200), module, DadrasModule::SPREAD_PARAM));
@@ -770,6 +754,7 @@ struct DadrasWidget : ModuleWidget {
         addParam(createParam<VCVButton>(Vec(11, 119.5), module, DadrasModule::SYNCH_BUTTON_PARAM));
         addParam(createParam<VCVButton>(Vec(11, 60.5), module, DadrasModule::RESET_BUTTON_PARAM));
         addParam(createParam<PurpleSwitch>(Vec(208, 32), module, DadrasModule::AXIS_SWITCH_PARAM));
+        addParam(createParam<VCVButton>(Vec(210, 84), module, DadrasModule::WTYPE_BUTTON_PARAM));
 
         addInput(createInput<PurplePort>(Vec(130, 160), module, DadrasModule::SPEED_INPUT));
         addInput(createInput<PurplePort>(Vec(166, 242), module, DadrasModule::SPREAD_INPUT));

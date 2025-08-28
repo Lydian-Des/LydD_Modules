@@ -3,8 +3,6 @@
 #include "plugin.hpp"
 #include <complex>
 #include <cmath>
-#include <map>
-#include <functional>
 #include <vector>
 
 
@@ -46,7 +44,6 @@ struct Brots {
         return tan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
     }
 
-    std::function<std::complex<float>(float, std::complex<float>, std::complex<float>)> brotype;
 
 };
 
@@ -165,6 +162,7 @@ struct PoppyModule : Module
         configInput(EXP_X_INPUT, "Exponent-X In");
         configInput(SEQ_START_INPUT, "Start Point");
         configInput(SEQ_LENGTH_INPUT, "Sequence Length");
+       
         
         configOutput(X_CV_OUTPUT, "X CV Out");
         configOutput(XSHIFT_CV_OUTPUT, "X Shift register CV Out");
@@ -183,25 +181,21 @@ struct PoppyModule : Module
     std::vector<float> xCoord;
     std::vector<float> yCoord;
        
-    int currentPolyphony = 1;
-    int loopCounter = 0;
-   
-    int iters = 127;
 
+    int loopCounter = 0;
+    //maximum sequence length
+    int iters = 127;
+    //output ranges and bounding box for zoom
     int range = 2;
     int _range = 0;
     int rangeY = 2;
-    int _rangeY = 0;
-   
+    int _rangeY = 0;   
     float XplaceMin = -2;
     float XplaceMax = 2;
     float YplaceMin = -2;
     float YplaceMax = 2;
-    
-    bool outXconnect = false;
-    bool outYconnect = false;
-    bool outXtrigconnect = false;  
-    bool outYtrigconnect = false;   
+
+    //bools for connected ins  
     bool inZxconnect = false;
     bool inZyconnect = false;
     bool inCxconnect = false;
@@ -215,14 +209,13 @@ struct PoppyModule : Module
     bool inslewX = false;
     bool inslewY = false;
    
-        
+    //bools and ints for buttontypes    
     bool auxbutton = false;
     int auxType = 0;
     bool fract = false;
     int fractal = 0;
     bool qual = false;
     int quality = 0;
-
     bool julia = false;
     bool jul = false;   
     bool reverse = false;
@@ -241,16 +234,16 @@ struct PoppyModule : Module
     bool CM = false;
     bool MovetoZ = false;
     bool MZ = false;
-        
+    
+    //sequence generation members
     float Cx = 0.f;
     float Cyi = 0.f;
-    float Zxpar = 0.f;
-    float Zypar = 0.f;
-    float Zx = Zxpar;
-    float Zyi = Zypar;
+    float Zx = 0.f;
+    float Zyi = 0.f;
     float EXP = 2.f;
     float Mutate = 0.f;
 
+    //sequence output members
     int Xstep = 0;
     int Ystep = 0;
     int shiftOffset = 0;
@@ -265,12 +258,14 @@ struct PoppyModule : Module
     float nowY = 0;
     float shiftnowX = 0;
     float shiftnowY = 0;
+
+    //estimated time calculations
     float dtX = 0;
     float dtY = 0;
     float speedX = 0;
     float speedY = 0;
 
-
+    //rack shit
     rack::dsp::Timer timerX;
     rack::dsp::Timer timerY;
     rack::dsp::SchmittTrigger TriggerX;
@@ -280,6 +275,7 @@ struct PoppyModule : Module
     rack::dsp::SlewLimiter _slewlimitX{};
     rack::dsp::TRCFilter<float> deClick;
 
+    //used in Aux type == 1 : magnitude
     float loosesqrt(float x) {
         float g = x / 2.f;
         for (int n = 0; n < 4; ++n) {
@@ -312,10 +308,6 @@ struct PoppyModule : Module
         outputs[Y_TRIG_OUTPUT].setChannels(1);
         outputs[AUX_OUTPUT].setChannels(1);
 
-        outXconnect = outputs[X_CV_OUTPUT].isConnected();
-        outYconnect = outputs[Y_CV_OUTPUT].isConnected();
-        outXtrigconnect = outputs[X_TRIG_OUTPUT].isConnected();
-        outYtrigconnect = outputs[Y_TRIG_OUTPUT].isConnected();
         inZxconnect = inputs[Z_X_INPUT].isConnected();
         inZyconnect = inputs[Z_YI_INPUT].isConnected();
         inCxconnect = inputs[C_X_INPUT].isConnected();
@@ -401,6 +393,7 @@ struct PoppyModule : Module
         button.momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
 
         shiftOffset = params[SHIFT_REGISTER_PARAM].value;
+
         seqsize = params[ITERS_PARAM].value;
         if (inSizeconnect) {
             seqsize = (int)Funct.lerp(1, 127, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
@@ -457,7 +450,7 @@ struct PoppyModule : Module
         
         float Cxin = (inCxconnect) ? inputs[C_X_INPUT].getVoltage(0) : 0.0;
         float Cyin = (inCyconnect) ? -(inputs[C_YI_INPUT].getVoltage(0)) : 0.0;
-        float adderx = (inCxconnect) ? 6.f : 1.8f;
+        float adderx = (inCxconnect) ? 6.f : 1.8f; // must interpolate differently for variance in size of input vs param
         float addery = (inCyconnect) ? 6.f : 1.8f;
         float Cxcombo = Funct.lerp(XplaceMin, XplaceMax, -adderx, adderx, Cxin + Cxpar);
         float Cycombo = Funct.lerp(YplaceMin, YplaceMax, -addery, addery, Cyin + Cypar);
@@ -465,8 +458,8 @@ struct PoppyModule : Module
         Cyi = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
         std::complex<float>C(Cx, Cyi);
 
-        Zxpar = params[Z_X_PARAM].value;
-        Zypar = params[Z_YI_PARAM].value;
+        float Zxpar = params[Z_X_PARAM].value;
+        float Zypar = params[Z_YI_PARAM].value;
         float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0;
         float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0;
         Zx = rack::math::clamp(Funct.lerp(-1, 1, -5, 5, Zxin) + Zxpar, -1.5f, 1.5f);
@@ -499,8 +492,6 @@ struct PoppyModule : Module
 
         for (int i = 0; i <= iters; ++i) {
             std::complex<float>pastVal = Z;
-
-
 
             switch (fractal) {
             case 0: {
@@ -552,7 +543,7 @@ struct PoppyModule : Module
                 break;
             }
             }
-            if (abs(Z) > 2 || (rack::math::isNear(real(Z), real(pastVal)) && rack::math::isNear(imag(Z), imag(pastVal)))) {
+            if (abs(Z) > 2 || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
                 Z = std::complex<float>(Cx, Cyi);
             }
             xCoord.emplace_back(real(Z));
@@ -561,6 +552,7 @@ struct PoppyModule : Module
 
         zoomSpread = params[ZOOM_PARAM].value;
 
+        //making slew limiter RiseFall proportional to estimated time between clock pulses. 
         float smoothnessX = -(params[SLEW_X_PARAM].value) + 1;
         if (inslewX) {
             float smooXput = Funct.lerp(0, 1, 0, 5, rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), 0.f, 5.f));
@@ -579,7 +571,7 @@ struct PoppyModule : Module
 
     void generateOutput(const ProcessArgs& args) {
      
-        
+        //wrap any given sequence around the max size(iters)
         Xstep = (Xseqstep + seqstart) % iters;
         XshiftStep = (Xseqstep + seqstart - shiftOffset) % iters;
         XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
@@ -587,16 +579,19 @@ struct PoppyModule : Module
         YshiftStep = (Yseqstep + seqstart - shiftOffset) % iters;
         YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
 
+        //lets get wierd with it
         if (!julia) {
             Mutate = rack::dsp::sqrtBipolar((Zx * Zx) + (Zyi * Zyi)) ;
         }
         else {
             Mutate = rack::dsp::sqrtBipolar((Cx * Cx) + (Cyi * Cyi));
         }
-        float cvValX = xCoord[Xstep]; // Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, xCoord[Xstep]);
-        float cvValY = yCoord[Ystep]; //Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, yCoord[Ystep]);
+
+        float cvValX = xCoord[Xstep];
+        float cvValY = yCoord[Ystep];
         float shiftValX = xCoord[XshiftStep];
         float shiftValY = yCoord[YshiftStep];
+
         if (invert) {
             cvValX = -cvValX;
             cvValY = -cvValY;
@@ -607,22 +602,24 @@ struct PoppyModule : Module
         else {
             lights[INVERT_LIGHT].setBrightness(0.f);
         }
+        //Zooming in will spread outputs around 0
         cvValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
         cvValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
         shiftValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
         shiftValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
 
-        bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.1f);
+        //trying to change it up a bit(a 5th to be real) if it moves straight horizontal or vertical
+        bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.0416f);
         if (xClose) {
             cvValX += 0.583333;
         }
-
-        bool yClose = rack::math::isNear(yCoord[abs(Ystep - 1)], yCoord[Ystep], 0.1f);
+        bool yClose = rack::math::isNear(yCoord[abs(Ystep - 1)], yCoord[Ystep], 0.0416f);
         if (yClose) {
             cvValY += 0.583333;
 
         }
 
+        //is it the beginning? is it the end?           are they the same thing?
         bool BOC = Xstep == seqstart;
         bool BOCtrig = EOC.process(BOC, 0.8f, 1.0f);
 
@@ -636,73 +633,73 @@ struct PoppyModule : Module
             yClock = inputs[YI_CLOCK_INPUT].getVoltage(0);
         }
 
-            bool isX = TriggerX.process(baseClock, 0.8f, 1.f);
-            if (isX) {
-                if (reverse) {
-                    Xseqstep -= 1;
-                }
-                else {
-                    Xseqstep += 1;
-                }
-                if (Xseqstep > seqsize) {
-                    Xseqstep = 0;
-                }
-                if (Xseqstep < 0) {
-                    Xseqstep = seqsize;
-                }
-                nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX);
-                shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX);
-                dtX = timestepX;
-                timerX.reset();
-            }
-            if (TriggerX.isHigh()) {
-                outputs[X_TRIG_OUTPUT].setVoltage(5.0f, 0);
+        bool isX = TriggerX.process(baseClock, 0.8f, 1.f);
+        if (isX) {
+            if (reverse) {
+                Xseqstep -= 1;
             }
             else {
-                outputs[X_TRIG_OUTPUT].setVoltage(0.0f, 0);
+                Xseqstep += 1;
             }
-            speedX = 1.f / dtX;
+            if (Xseqstep > seqsize) {
+                Xseqstep = 0;
+            }
+            if (Xseqstep < 0) {
+                Xseqstep = seqsize;
+            }
+            nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX);
+            shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX);
+            dtX = timestepX;
+            timerX.reset();
+        }
+        if (TriggerX.isHigh()) {
+            outputs[X_TRIG_OUTPUT].setVoltage(5.0f, 0);
+        }
+        else {
+            outputs[X_TRIG_OUTPUT].setVoltage(0.0f, 0);
+        }
+        speedX = 1.f / dtX;
 
-            bool isY = TriggerY.process(yClock, 0.8f, 1.f);
-            if (isY) {
+        bool isY = TriggerY.process(yClock, 0.8f, 1.f);
+        if (isY) {
                     
                     
-                if (reverse) {
-                    Yseqstep -= 1;
-                }
-                else {
-                    Yseqstep += 1;
-                }
-                if (Yseqstep > seqsize) {
-                    Yseqstep = 0;
-                }
-                if (Yseqstep < 0) {
-                    Yseqstep = seqsize;
-                }
-                nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY);
-                shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY);
-                dtY = timestepY;
-                timerY.reset();
-            }
-            if (TriggerY.isHigh()) {
-                outputs[Y_TRIG_OUTPUT].setVoltage(5.0f, 0);
+            if (reverse) {
+                Yseqstep -= 1;
             }
             else {
-                outputs[Y_TRIG_OUTPUT].setVoltage(0.0f, 0);
+                Yseqstep += 1;
             }
-            speedY = 1.f / dtY;
+            if (Yseqstep > seqsize) {
+                Yseqstep = 0;
+            }
+            if (Yseqstep < 0) {
+                Yseqstep = seqsize;
+            }
+            nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY);
+            shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY);
+            dtY = timestepY;
+            timerY.reset();
+        }
+        if (TriggerY.isHigh()) {
+            outputs[Y_TRIG_OUTPUT].setVoltage(5.0f, 0);
+        }
+        else {
+            outputs[Y_TRIG_OUTPUT].setVoltage(0.0f, 0);
+        }
+        speedY = 1.f / dtY;
 
             
+        //gotta put in 2 more copies of the slew limiter for the shift register outputs. or Not.
+        float slewingX = _slewlimitX.process(args.sampleTime, nowX);
+        outputs[X_CV_OUTPUT].setVoltage(slewingX, 0);
 
-            float slewingX = _slewlimitX.process(args.sampleTime, nowX);
-            outputs[X_CV_OUTPUT].setVoltage(slewingX, 0);
+        outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
 
-            outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
+        float slewingY = _slewlimitY.process(args.sampleTime, nowY);
+        outputs[Y_CV_OUTPUT].setVoltage(slewingY, 0);
 
-            float slewingY = _slewlimitY.process(args.sampleTime, nowY);
-            outputs[Y_CV_OUTPUT].setVoltage(slewingY, 0);
-
-            outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
+        outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
 
         switch (auxType) {
             
@@ -795,6 +792,8 @@ struct PoppyModule : Module
 
 };
 
+//this drawing shit is too goddamn big and needs some serious work. 
+//likely have to rewrite it entirely with an opengl widget.
 class picture {
 public:
     int* kTerm = new int[160 * 120];
@@ -1118,16 +1117,9 @@ struct PoppyWidget : ModuleWidget {
             FracWidget* myWidget = new FracWidget(module, Vec(69.5, 29.5));
             myWidget->setSize(Vec(160, 120));
             
-            FracBuffer->addChild(myWidget);
-            
-           
-                      
-        }
-    
-        
-    }
-
-    
+            FracBuffer->addChild(myWidget);                      
+        }        
+    }    
 };
 
 Model* modelPoppy = createModel<PoppyModule, PoppyWidget>("Poppy-fields");
