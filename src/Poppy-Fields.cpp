@@ -115,6 +115,8 @@ struct PoppyModule : Module
         NUM_LIGHTS
     };
 
+    //maximum sequence length
+    const int iters = 64;
 
     PoppyModule() {
         // Your module must call config from its constructor, passing in
@@ -125,9 +127,9 @@ struct PoppyModule : Module
         configParam(C_X_PARAM, -1.8, 1.8, 0, "C-X");
         configParam(C_YI_PARAM, -1.8, 1.8, 0, "C-Yi");
         configParam(EXP_X_PARAM, 1.75, 5, 2, "Exponent-X");
-        configParam(ITERS_PARAM, 1, 128, 64, "Iterations");
+        configParam(ITERS_PARAM, 1, iters, 32, "Iterations");
         paramQuantities[ITERS_PARAM]->snapEnabled = true;
-        configParam(SEQ_START_PARAM, 0, 127, 0, "Start Point");
+        configParam(SEQ_START_PARAM, 0, iters, 0, "Start Point");
         paramQuantities[SEQ_START_PARAM]->snapEnabled = true;
         configParam(SHIFT_REGISTER_PARAM, 1, 4, 1, "Shift");
         paramQuantities[SHIFT_REGISTER_PARAM]->snapEnabled = true;
@@ -183,8 +185,7 @@ struct PoppyModule : Module
        
 
     int loopCounter = 0;
-    //maximum sequence length
-    int iters = 127;
+
     //output ranges and bounding box for zoom
     int range = 2;
     int _range = 0;
@@ -254,16 +255,17 @@ struct PoppyModule : Module
     int Xseqstep = 0;
     int Yseqstep = 0;
     float zoomSpread = 1.f;   
-    float nowX = 0;
-    float nowY = 0;
-    float shiftnowX = 0;
-    float shiftnowY = 0;
+    float nowX = 0.f;
+    float nowY = 0.f;
+    float shiftnowX = 0.f;
+    float shiftnowY = 0.f;
+    float fractOffset = 0.f;
 
     //estimated time calculations
-    float dtX = 0;
-    float dtY = 0;
-    float speedX = 0;
-    float speedY = 0;
+    float dtX = 0.f;
+    float dtY = 0.f;
+    float speedX = 0.f;
+    float speedY = 0.f;
 
     //rack shit
     rack::dsp::Timer timerX;
@@ -287,15 +289,17 @@ struct PoppyModule : Module
 
     void process(const ProcessArgs& args) override {
 
-        if (loopCounter % 24 == 0) {            
-            createSequence(args);           
-        }
         if (loopCounter % 64 == 0) {
             connections(args);
         }
+        if (loopCounter % 16 == 0) {            
+            createSequence(args);           
+        }
+        
         generateOutput(args);
         ++loopCounter;
-        if (loopCounter % 256 == 0) {
+
+        if (loopCounter % (int)args.sampleRate * 2 == 0) {
             dirty = true;
             loopCounter = 0;
         }
@@ -375,11 +379,7 @@ struct PoppyModule : Module
 
 
     void createSequence(const ProcessArgs& args) {
-
-        
-
-        
-        
+    
         button.incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
         button.incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
         button.incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 3, &quality);
@@ -396,13 +396,16 @@ struct PoppyModule : Module
 
         seqsize = params[ITERS_PARAM].value;
         if (inSizeconnect) {
-            seqsize = (int)Funct.lerp(1, 127, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
+            seqsize = (int)Funct.lerp(1, iters, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
             seqsize = seqsize > 1 ? seqsize : 1;
         }
         seqstart = params[SEQ_START_PARAM].value;
         if (inStartconnect) {
-            seqstart = (int)Funct.lerp(0, 127, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
+            seqstart = (int)Funct.lerp(0, iters, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
             seqstart = seqstart > 0 ? seqstart : 0;
+        }
+        if (inReverseconnect) {
+            button.latchButton(inputs[REVERSE_INPUT].getVoltage(0), &reverse, &rev);
         }
         if (inResetconnect) {
             button.momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
@@ -411,21 +414,16 @@ struct PoppyModule : Module
             Xseqstep = 0;
             Yseqstep = 0;
         }
-        if (inReverseconnect) {
-            button.latchButton(inputs[REVERSE_INPUT].getVoltage(0), &reverse, &rev);
-        }
-           
-
         xCoord.clear();
         yCoord.clear();
         
-
         float Cxpar = params[C_X_PARAM].value;
         float Cypar = params[C_YI_PARAM].value;
         float Cxloc = Funct.lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, Cxpar);
         float Cyloc = Funct.lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, Cypar);
         float CenterX = params[MOVE_X_PARAM].value;
         float CenterY = params[MOVE_YI_PARAM].value;
+        //fun little adjustment check to move to actual fractal space location
         if (CtoMove && ((Cyloc != CenterY) || (Cxloc != CenterX))) {
             params[MOVE_X_PARAM].setValue(Cxloc);
             params[MOVE_YI_PARAM].setValue(Cyloc);
@@ -433,7 +431,7 @@ struct PoppyModule : Module
             params[C_YI_PARAM].setValue(0.0);
 
         }
-
+        //this ones way easier
         if (MovetoZ) {
             params[Z_X_PARAM].setValue(CenterX);
             params[Z_YI_PARAM].setValue(CenterY);
@@ -442,12 +440,20 @@ struct PoppyModule : Module
         float ZOOM = params[ZOOM_PARAM].value;
         float MOVEX = params[MOVE_X_PARAM].value;
         float MOVEY = params[MOVE_YI_PARAM].value;
-        XplaceMin = -2 / ZOOM + MOVEX;
-        XplaceMax = 2 / ZOOM + MOVEX;
-        YplaceMin = -2 / ZOOM + MOVEY;
-        YplaceMax = 2 / ZOOM + MOVEY;
 
-        
+        XplaceMin = -2 / (ZOOM * ZOOM);
+        XplaceMin += MOVEX;
+        XplaceMax = 2 / (ZOOM * ZOOM);
+        XplaceMax += MOVEX;
+        YplaceMin = -2 / (ZOOM * ZOOM);
+        YplaceMin += MOVEY;
+        YplaceMax = 2 / (ZOOM * ZOOM);
+        YplaceMax += MOVEY;
+
+        float EXPparam = params[EXP_X_PARAM].value;
+        float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.0;
+        EXP = EXPparam + EXPin;
+
         float Cxin = (inCxconnect) ? inputs[C_X_INPUT].getVoltage(0) : 0.0;
         float Cyin = (inCyconnect) ? -(inputs[C_YI_INPUT].getVoltage(0)) : 0.0;
         float adderx = (inCxconnect) ? 6.f : 1.8f; // must interpolate differently for variance in size of input vs param
@@ -456,29 +462,25 @@ struct PoppyModule : Module
         float Cycombo = Funct.lerp(YplaceMin, YplaceMax, -addery, addery, Cyin + Cypar);
         Cx = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
         Cyi = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
-        std::complex<float>C(Cx, Cyi);
-
+        
         float Zxpar = params[Z_X_PARAM].value;
         float Zypar = params[Z_YI_PARAM].value;
         float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0;
         float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0;
         Zx = rack::math::clamp(Funct.lerp(-1, 1, -5, 5, Zxin) + Zxpar, -1.5f, 1.5f);
         Zyi = rack::math::clamp(Funct.lerp(-1, 1, -5, 5, Zyin) + Zypar, -1.5f, 1.5f);
-        std::complex<float>Z = std::complex<float>(Zx, Zyi);
-       
-        float EXPparam = params[EXP_X_PARAM].value;
-        float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.0;
-        EXP = EXPparam + EXPin;
-
-       
+              
         if (mirror) {
-            C = std::complex<float>(Cx, -Cyi);
-            Z = std::complex<float>(Zx, -Zyi);
+            Cyi = -Cyi;
+            Zyi = -Zyi;
             lights[MIRROR_LIGHT].setBrightness(1.f);
         }
         else {
             lights[MIRROR_LIGHT].setBrightness(0.f);
         }
+
+        std::complex<float>C(Cx, Cyi);
+        std::complex<float>Z(Zx, Zyi);
 
         if (julia) {
             std::complex<float>Zswap = Z;
@@ -500,6 +502,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Mandelbrot";
+                fractOffset = 0.f;
                 break;
             }
             case 1: {
@@ -508,6 +511,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(1.0);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Burning Ship";
+                fractOffset = 0.1666667f;
                 break;
             }
             case 2: {
@@ -516,6 +520,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.95);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Beetlebrot";
+                fractOffset = -0.1666667f;
                 break;
             }
             case 3: {
@@ -524,6 +529,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.38);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Bird";
+                fractOffset = 0.0833333f;
                 break;
             }
             case 4: {
@@ -532,6 +538,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.36);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.64);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Daisybrot-High CPU";
+                fractOffset = 0.3333333f;
                 break;
             }
             case 5: {
@@ -540,6 +547,7 @@ struct PoppyModule : Module
                 lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.06);
                 lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.4);
                 paramQuantities[FRACT_BUTTON_PARAM]->name = "Unicron-High CPU";
+                fractOffset = -0.3333333f;
                 break;
             }
             }
@@ -603,10 +611,10 @@ struct PoppyModule : Module
             lights[INVERT_LIGHT].setBrightness(0.f);
         }
         //Zooming in will spread outputs around 0
-        cvValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
-        cvValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
-        shiftValX *= Funct.lerp(1, 2, 1, 50, zoomSpread);
-        shiftValY *= Funct.lerp(1, 2, 1, 50, zoomSpread);
+        cvValX *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
+        cvValY *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
+        shiftValX *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
+        shiftValY *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
 
         //trying to change it up a bit(a 5th to be real) if it moves straight horizontal or vertical
         bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.0416f);
@@ -626,7 +634,7 @@ struct PoppyModule : Module
         float timestepX = timerX.process(args.sampleTime);
         float timestepY = timerY.process(args.sampleTime);
 
-        float baseClock = inputs[CLOCK_INPUT].getVoltage(0);
+        float baseClock = inputs[CLOCK_INPUT].getVoltage(0) + clockTapSet;
         float yClock = baseClock;
            
         if (inYClockconnect) {
@@ -647,8 +655,8 @@ struct PoppyModule : Module
             if (Xseqstep < 0) {
                 Xseqstep = seqsize;
             }
-            nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX);
-            shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX);
+            nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX) + fractOffset;
+            shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX) + fractOffset;
             dtX = timestepX;
             timerX.reset();
         }
@@ -676,8 +684,8 @@ struct PoppyModule : Module
             if (Yseqstep < 0) {
                 Yseqstep = seqsize;
             }
-            nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY);
-            shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY);
+            nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY) + fractOffset;
+            shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY) + fractOffset;
             dtY = timestepY;
             timerY.reset();
         }
@@ -796,14 +804,24 @@ struct PoppyModule : Module
 //likely have to rewrite it entirely with an opengl widget.
 class picture {
 public:
-    int* kTerm = new int[160 * 120];
-    size_t buf_size = 160 * 120 * 4 * sizeof(unsigned char);
-    unsigned char* Kvals = new unsigned char[buf_size];
-
+    int* kTerm;
+    size_t buf_size;
+    unsigned char* Kvals;
     picture(){
+        kTerm = new int[160 * 120];
+        buf_size = 160 * 120 * 4 * sizeof(unsigned char);
+        Kvals = new unsigned char[buf_size];
         memset(Kvals, 1, buf_size);
     }
-    ~picture() {}
+    void Empty() {
+        for (size_t i = 0; i < buf_size; ++i) {
+            this->Kvals[i] = 1;
+        }
+    }
+    ~picture() {
+        delete[] this->Kvals;
+        delete[] this->kTerm;
+    }
 };
 
 struct FracWidgetBuffer : FramebufferWidget {
@@ -827,20 +845,19 @@ struct FracWidgetBuffer : FramebufferWidget {
 };
 
 struct FracWidget : Widget {
-    
+    BaseFunctions Funct;
+    Brots Brot;
     PoppyModule* Fracking;
-    
+    picture* pic;
     FracWidget(PoppyModule* module, Vec topLeft) {
         Fracking = module;
         box.pos = topLeft;
-
+        pic = new(picture);
     }
-
-    BaseFunctions Funct;
-    Brots Brot;
-    picture pic;
-
+   
+    int pictureColor = -1;
     int frames = 0;
+
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer == 1) {
             int drawboxX = box.size.x;
@@ -855,15 +872,15 @@ struct FracWidget : Widget {
             float xdrawMax = Fracking->XplaceMax;
             float ydrawMin = Fracking->YplaceMin;
             float ydrawMax = Fracking->YplaceMax;
-            int pixel = 1;
+            int pixel = 2;
             int iters = 25;
-            float Zlastpix = 0.f;
-
-            int pictureColor = nvgCreateImageRGBA(args.vg, drawboxX, drawboxY, 0, pic.Kvals);
-            /*filling screenbuffer with RGBA values*/
-            
-                for (int j = 0; j < drawboxY; j += pixel) {
-                    for (int l = 0; l < drawboxX; l += pixel) {
+            if (pictureColor == -1) {
+                pictureColor = nvgCreateImageRGBA(args.vg, drawboxX, drawboxY, 0, pic->Kvals);
+            }
+            /*filling screenbuffer with RGBA values*/ //turn it off if mode 2 for processor issues
+            //if (Fracking->quality != 2) {
+                for (int j = pixel; j < drawboxY - pixel; j += pixel) {
+                    for (int l = pixel; l < drawboxX - pixel; l += pixel) {
 
                         int index = j * drawboxX + l;
 
@@ -874,26 +891,22 @@ struct FracWidget : Widget {
 
                         float expo = Fracking->EXP;
 
-                        if (Fracking->mirror) {
-                            C = std::complex<float>(ilerp, -jlerp);
-                            Z = std::complex<float>(Fracking->Zx, -Fracking->Zyi);
-
-                        }
-
                         if (Fracking->julia) {
                             std::complex<float>Zswap = Z;
                             Z = C;
                             C = Zswap;
                         }
-                        int k = 0;
-                        std::complex<float>Ztemp(0, 0);
-
+                        
+                        //essentially turn off drawing for performance
                         if (Fracking->quality == 2) {
-                            pic.Kvals[index * 4 + 0] = 0.f;
-                            pic.Kvals[index * 4 + 1] = 0.f;
-                            pic.Kvals[index * 4 + 2] = 0.f;
-                            pic.Kvals[index * 4 + 3] = 0.f;
+                            pic->Kvals[index * 4 + 0] = 0.f;
+                            pic->Kvals[index * 4 + 1] = 0.f;
+                            pic->Kvals[index * 4 + 2] = 0.f;
+                            pic->Kvals[index * 4 + 3] = 0.f;
                         }
+
+                        int k;
+                        std::complex<float>Ztemp(0, 0);
 
                         for (k = 0; k < iters; ++k) {
                             Ztemp = Z;
@@ -924,97 +937,155 @@ struct FracWidget : Widget {
                             }
                             }
 
+                            if (Fracking->quality == 2) {
+
+                                if ( j % 4 ==0 && l % 4 == 0) {
+                                    int Xloc = rack::math::clamp((int)Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, real(Z)), pixel, drawboxX - pixel);
+                                    int Yloc = rack::math::clamp((int)Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, imag(Z)), pixel, drawboxY - pixel);
+                                    int Zpixindex = Yloc * drawboxX + Xloc;
+                                    float redval = abs(real(Z) - imag(Z)) * 9;
+                                    float greenval = k / 10.f;
+                                    float blueval = 4 * (real(Z) * real(C)) + (imag(Z) * imag(C));
+                                    float alphaval = 35;
+                                    for (int r = 0; r < pixel; ++r) {
+                                        for (int c = 0; c < pixel; ++c) {
+                                            int Zpixsur = (Zpixindex + (drawboxX * r) + c);
+                                            pic->Kvals[Zpixsur * 4 + 0] = std::min(pic->Kvals[Zpixsur * 4 + 0] + redval, 245.f);
+                                            pic->Kvals[Zpixsur * 4 + 1] = std::min(pic->Kvals[Zpixsur * 4 + 1] + greenval, 245.f);
+                                            pic->Kvals[Zpixsur * 4 + 2] = std::min(pic->Kvals[Zpixsur * 4 + 2] + blueval, 245.f);
+                                            pic->Kvals[Zpixsur * 4 + 3] = std::min(pic->Kvals[Zpixsur * 4 + 3] + alphaval, 245.f);
+                                        }
+                                    }
+                                }
+                            }
+
                             if (abs(Z) > 2) {
                                 break;
                             }
-                            if (Fracking->quality == 2) {
-
-                                if (k > 3 && k < iters - 5) {
-
-                                   
-                                    int Xloc = rack::math::clamp((int)Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, real(Z)), 0, drawboxX - 1);
-                                    int Yloc = rack::math::clamp((int)Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, imag(Z)), 0, drawboxY - 1);
-                                    int indexsmall = Yloc * drawboxX + Xloc;
-                                    pic.Kvals[(indexsmall) * 4 + 0] += abs(real(Z) - real(Ztemp)) * 30;
-                                    pic.Kvals[(indexsmall) * 4 + 1] += k * 2 + imag(Z);
-                                    pic.Kvals[(indexsmall) * 4 + 2] += 205 - abs(imag(Z));
-                                    pic.Kvals[(indexsmall) * 4 + 3] += (pic.Kvals[(indexsmall) * 4 + 3] < 240) ? 15 : 0;
-                                    
-                                }
-                            }
                         }
-                        
-                        if(pic.kTerm[index] != abs(Z)) {
+
                             if (Fracking->quality == 0) {
                                 if (k >= iters - 1) {
-                                    pic.Kvals[(index) * 4 + 0] = abs(real(Z) - imag(Z)) * 5;
-                                    pic.Kvals[(index) * 4 + 1] = 0;
-                                    pic.Kvals[(index) * 4 + 2] = 40 - abs(imag(Z) * real(Z)) * 5;
-                                    pic.Kvals[(index) * 4 + 3] = 210;
+                                    float redval = abs(real(Z) - imag(Z)) * 50;
+                                    float greenval = 0;
+                                    float blueval = 40 - redval / 10;
+                                    float alphaval = 210;
+                                    for (int r = -pixel; r < pixel; ++r) {
+                                        for (int c = -pixel; c < pixel; ++c) {
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 0] = redval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 1] = greenval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 2] = blueval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 3] = alphaval;
+                                        }
+                                    }
                                 }
                                 else {
-                                    pic.Kvals[(index) * 4 + 0] = 3 * k;
-                                    pic.Kvals[(index) * 4 + 1] = 20 + real(Z) * 5;
-                                    pic.Kvals[(index) * 4 + 2] = 130 - imag(Z) * 5;
-                                    pic.Kvals[(index) * 4 + 3] = 210;
+                                    float redval =3 * k;
+                                    float greenval = 20 + real(Z) * 8;
+                                    float blueval = 130 - imag(Z) * 5;
+                                    float alphaval = 180;
+                                    for (int r = -pixel; r < pixel; ++r) {
+                                        for (int c = -pixel; c < pixel; ++c) {
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 0] = redval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 1] = greenval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 2] = blueval;
+                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 3] = alphaval;
+
+                                        }
+                                    }
                                 }
                             }
                             if (Fracking->quality == 1) {
-                                if (k <= iters - 1) {
-                                    double zbe = (abs(C) / 2.0) - ((int)abs(C) / 2.0);
-                                    double zab = 1 - zbe;
-                                    double ztbe = (abs(Z) / 2.0) - (int)(Zlastpix / 2.0);
-                                    double ztab = 1 - ztbe;
+                                if (k >= iters - 1) {
+                                    
+                                    float redval = 14 * abs(real(Z) - imag(Z));
+                                    float greenval = abs(real(Z) - real(Ztemp)) * 70;
+                                    float blueval = 200 - abs(imag(Z) - imag(Ztemp)) * 55;
+                                    float alphaval = 180;
+                                   
+                                    for (int r = -pixel; r < pixel; ++r) {
+                                        for (int c = -pixel; c < pixel; ++c) {
+                                            int newindex = index + (drawboxX * r) + c;
+                                            pic->Kvals[(newindex) * 4 + 0] = redval;
+                                            pic->Kvals[(newindex) * 4 + 1] = greenval;
+                                            pic->Kvals[(newindex) * 4 + 2] = blueval;
+                                            pic->Kvals[(newindex) * 4 + 3] = alphaval;
+                                            for (int nr = 0; nr < pixel; ++nr) {
+                                                for (int nc = 0; nc < pixel; ++nc) {
+                                                    if (nr != 0 && nc != 0) {
+                                                        pic->Kvals[(newindex) * 4 + 0] += (0.2 / (abs(nr + nc) + 2))
+                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 0];
+                                                        pic->Kvals[(newindex) * 4 + 2] += (0.3 / (abs(nr + nc) + 2))
+                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 2];
+                                                    }
 
-                                    pic.Kvals[(index) * 4 + 0] = 20 * ((zab + ztab * log(k + 1)) + (zbe + ztbe * abs(log(k + 1) - 1)));
-                                    pic.Kvals[(index) * 4 + 0] += (0.31 * pic.Kvals[((j > 0 ? j - 1 : j) * drawboxX + l) * 4]);
-                                    pic.Kvals[(index) * 4 + 0] += (0.12 * pic.Kvals[(j * drawboxX + (l > 0 ? l - 1 : l)) * 4]);
-                                    pic.Kvals[(index) * 4 + 1] = 10 * (zab * k + zbe * abs(k - 1));
-                                    pic.Kvals[(index) * 4 + 2] = 20 * ((ztab * k * log(k + 1)) + (ztbe * abs(k + log(k + 1) - 1))); // +(0.31 * Kvals[((j > 0 ? j - 1 : j) * drawboxX + l) * 4 + 2]) + (0.12 * Kvals[(j * drawboxX + (l > 1 ? l - 2 : l)) * 4 + 2]);
-                                    pic.Kvals[(index) * 4 + 3] = 210;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 else {
-                                    pic.Kvals[(index) * 4 + 0] = 20 * abs(real(Z));
-                                    pic.Kvals[(index) * 4 + 1] = abs(real(Z) - real(Ztemp)) * 70;
-                                    pic.Kvals[(index) * 4 + 2] = 200 - abs(imag(Z) - imag(Ztemp)) * 55;
-                                    pic.Kvals[(index) * 4 + 3] = 180;
+                                    double Cbe = (abs(C) / 2.0) - (int)(abs(C) / 2.0);
+                                    double Cab = 1 - Cbe;
+                                    double Zbe = (abs(Z) / 2.0) - (int)(abs(Z) / 2.0);
+                                    double Zab = 1 - Zbe;
+                                    float klog = log(k + 1);
+                                    float redval =(k == 0 ) ? 0.f : (4 * (((Cab * Zab) * klog) / ((Cbe * Zbe) * abs(klog - 1))));
+                                    float greenval = 10 * (Cab * k + Cbe * abs(k - 1));
+                                    float blueval = 20 * ((Zab * k * klog) + (Zbe * abs(k + klog - 1)));
+                                    float alphaval = 210;
+                                    for (int r = -pixel; r < pixel; ++r) {
+                                        for (int c = -pixel; c < pixel; ++c) {
+                                            int newindex = index + (drawboxX * r) + c;
+                                            pic->Kvals[(newindex) * 4 + 0] = redval;
+                                            pic->Kvals[(newindex) * 4 + 1] = greenval;
+                                            pic->Kvals[(newindex) * 4 + 2] = blueval;
+                                            pic->Kvals[(newindex) * 4 + 3] = alphaval;
+                                            for (int nr = 0; nr < pixel; ++nr) {
+                                                for (int nc = 0; nc < pixel; ++nc) {
+                                                    if (nr != 0 && nc != 0) {
+                                                        pic->Kvals[(newindex) * 4 + 0] += (0.2 / (abs(nr + nc) + 1))
+                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 0];
+                                                        pic->Kvals[(newindex) * 4 + 1] += (0.2 / (abs(nr + nc) + 1))
+                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 1];
+                                                        pic->Kvals[(newindex) * 4 + 2] += (0.2 / (abs(nr + nc) + 1))
+                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 2];
+                                                    }
+
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                            Zlastpix = abs(Z);
-                            pic.kTerm[index] = Zlastpix;
-                        }
+                            }                            
+
+                        pic->kTerm[index] = k;
                     }
                 }
+            //}
+            //else {
+            //    pic.Empty();
+            //}
 
-                nvgUpdateImage(args.vg, pictureColor, pic.Kvals);
 
-                if (pictureColor != 0) {
-                    
-                        NVGpaint picPaint = nvgImagePattern(args.vg, 0, 0, drawboxX, drawboxY, 0.0f, pictureColor, 1.0f);
-                        nvgBeginPath(args.vg);
-                        nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
-                        nvgFillPaint(args.vg, picPaint);
-                        nvgFill(args.vg);
-                       
-                    
+                if (pictureColor != -1){
+                    nvgUpdateImage(args.vg, pictureColor, pic->Kvals);    
                 }
-            
-            frames++;
-            frames %= 1028;
-
-
-
+                NVGpaint picPaint = nvgImagePattern(args.vg, 0, 0, drawboxX, drawboxY, 0.0f, pictureColor, 1.0f);
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
+                nvgFillPaint(args.vg, picPaint);
+                nvgFill(args.vg);
+                pic->Empty();
             /*the lines of the sequence itself, and tracking squares*/
             nvgFillColor(args.vg, nvgRGBAf(0.4, 0.86, 1.0, 0.46));
             nvgBeginPath(args.vg);
             float Crectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->Cx);
             float Crecty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->Cyi);
-            if (Fracking->mirror) {
-                Crecty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, -Fracking->Cyi);
-            }
+
             nvgRect(args.vg, Crectx - 2, Crecty - 2, 4, 4);
             nvgFill(args.vg);
-            for (int d = Fracking->seqstart; d <= (Fracking->seqsize + Fracking->seqstart); ++d) {
+            for (int d = Fracking->seqstart; d < (Fracking->seqsize + Fracking->seqstart); ++d) {
                 int draw = d % Fracking->iters;
                 float rectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[draw]);
                 float recty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[draw]);
@@ -1036,6 +1107,11 @@ struct FracWidget : Widget {
           
             nvgRect(args.vg, Seqrectx - 3, Seqrecty - 3, 6, 6);
             nvgFill(args.vg);
+        }
+        frames++;
+        if (frames % 100 == 0) {
+            //nvgDeleteImage(args.vg, pictureColor);
+            frames = 0;
         }
         Widget::drawLayer(args, layer);
     }
