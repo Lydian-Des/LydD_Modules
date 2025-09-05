@@ -119,10 +119,10 @@ struct SimoneModule : Module
         configParam(GAIN_ATTEN_PARAM, -1.f, 1.f, 0.f, "Gain Atternuverter");
         configParam(A_PARAM, -PI, PI, 0.f, "Alpha");
         configParam(B_PARAM, -PI, PI, 0.f, "Beta");
-        configParam(ITER1_PARAM, 1.f, 5.f, 1.f, "Pull1");
-        configParam(ITER2_PARAM, 1.f, 5.f, 1.f, "Pull2");
-        configParam(ITER3_PARAM, 1.f, 5.f, 1.f, "Pull3");
-        configParam(ITER4_PARAM, 1.f, 5.f, 1.f, "Pull4");
+        configParam(ITER1_PARAM, 0.f, 5.f, 1.f, "Pull1");
+        configParam(ITER2_PARAM, 0.f, 5.f, 1.f, "Pull2");
+        configParam(ITER3_PARAM, 0.f, 5.f, 1.f, "Pull3");
+        configParam(ITER4_PARAM, 0.f, 5.f, 1.f, "Pull4");
         configParam(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Range");
         for (int i = 0; i < 3; ++i) {
             configParam(OFFSET_PARAMS + i, -12.f, 12.f, 0.f, "offset");
@@ -146,7 +146,7 @@ struct SimoneModule : Module
     bool setRange = false;
 
 
-    int maxsize = 7;
+    int maxsize = 8;
     float apar = 0.f;
     float a = 0.f;
     float bpar = 0.f;
@@ -213,9 +213,9 @@ struct SimoneModule : Module
         generateOutput(args);
         
         loopCounter++;
-        if (loopCounter % 2048 == 0) {
+        if (loopCounter % 2520 == 0) {
             dirty = true;
-            loopCounter = 1;
+            loopCounter = 0;
         }
     }
 
@@ -238,8 +238,8 @@ struct SimoneModule : Module
         isinSpeed2 = inputs[SPEED2_INPUT].isConnected();
         isinSpeed3 = inputs[SPEED3_INPUT].isConnected();
         isinSpeed4 = inputs[SPEED4_INPUT].isConnected();
-        dcRemoveX.setCutoffFreq(10.6f / args.sampleRate);
-        dcRemoveY.setCutoffFreq(10.6f / args.sampleRate);
+        dcRemoveX.setCutoffFreq(15.2f / args.sampleRate);
+        dcRemoveY.setCutoffFreq(15.2f / args.sampleRate);
     }
 
     float exponlerp(float newmin, float newmax, float oldmin, float oldmax, float pos) {
@@ -324,7 +324,7 @@ struct SimoneModule : Module
         float inPM = inputs[PM_INPUT].getVoltage(0) * (((isinPM) ? params[PM_PARAM].value : 1.f));
         rack::simd::float_4 PM = timePitch * inPM * args.sampleTime;
 
-        Functions.incrementPhase(FM, args.sampleRate, &DT, _2PI);
+        Functions.incrementPhase(FM, args.sampleRate, &DT, 12.f * _2PI);
         DT += PM;
 
             float ain = (isinA) ? Functions.lerp(-PI, PI, -5, 5, inputs[A_INPUT].getVoltage(0)) : 0.0;
@@ -343,23 +343,24 @@ struct SimoneModule : Module
             //float InCurrent3 = rack::math::clamp(CurrentPar[2] + abs((isinIT3) ? inputs[ITER3_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
             //float InCurrent4 = rack::math::clamp(CurrentPar[3] + abs((isinIT4) ? inputs[ITER4_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
             
-            float currentCasc1 = (isinIT1) ? abs(inputs[ITER1_INPUT].getVoltage(0)) : 0.f;
+            float currentCasc1 = (isinIT1) ? abs(inputs[ITER1_INPUT].getVoltage(0)) : 1.f;
             float currentCasc2 = (isinIT2) ? abs(inputs[ITER2_INPUT].getVoltage(0)) : currentCasc1;
             float currentCasc3 = (isinIT3) ? abs(inputs[ITER3_INPUT].getVoltage(0)) : currentCasc2;
             float currentCasc4 = (isinIT4) ? abs(inputs[ITER4_INPUT].getVoltage(0)) : currentCasc3;
-            float Incurrent1 = rack::math::clamp(CurrentPar[0] + (currentCasc1), 1.f, 8.f);
-            float Incurrent2 = rack::math::clamp(CurrentPar[1] + (currentCasc2), 1.f, 8.f);
-            float Incurrent3 = rack::math::clamp(CurrentPar[2] + (currentCasc3), 1.f, 8.f);
-            float Incurrent4 = rack::math::clamp(CurrentPar[3] + (currentCasc4), 1.f, 8.f);
-            Current = std::vector<float>{ Incurrent1, Incurrent2, Incurrent3, Incurrent4 };
-            float placeCasc1 = (isinPOS1) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION1_INPUT].getVoltage(0)) : 0.f;
+            float Incurrent1 = rack::math::clamp(CurrentPar[0] * (currentCasc1), 0.f, 7.f);
+            float Incurrent2 = rack::math::clamp(CurrentPar[1] * (currentCasc2), 0.f, 7.f);
+            float Incurrent3 = rack::math::clamp(CurrentPar[2] * (currentCasc3), 0.f, 7.f);
+            float Incurrent4 = rack::math::clamp(CurrentPar[3] * (currentCasc4), 0.f, 7.f);
+            Current = std::vector<float>{ Incurrent1 + 1.f, Incurrent2 + 1.f, Incurrent3 + 1.f, Incurrent4 + 1.f };
+
+            float placeCasc1 = (isinPOS1) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION1_INPUT].getVoltage(0)) : 1.f;
             float placeCasc2 = (isinPOS2) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION2_INPUT].getVoltage(0)) : placeCasc1;
             float placeCasc3 = (isinPOS3) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION3_INPUT].getVoltage(0)) : placeCasc2;
             float placeCasc4 = (isinPOS4) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION4_INPUT].getVoltage(0)) : placeCasc3;
-            float Inplace1 = rack::math::clamp(PlacePar[0] + (placeCasc1), -2.f, 2.f);
-            float Inplace2 = rack::math::clamp(PlacePar[1] + (placeCasc2), -2.f, 2.f);
-            float Inplace3 = rack::math::clamp(PlacePar[2] + (placeCasc3), -2.f, 2.f);
-            float Inplace4 = rack::math::clamp(PlacePar[3] + (placeCasc4), -2.f, 2.f);
+            float Inplace1 = rack::math::clamp(PlacePar[0] * (placeCasc1), -2.f, 2.f);
+            float Inplace2 = rack::math::clamp(PlacePar[1] * (placeCasc2), -2.f, 2.f);
+            float Inplace3 = rack::math::clamp(PlacePar[2] * (placeCasc3), -2.f, 2.f);
+            float Inplace4 = rack::math::clamp(PlacePar[3] * (placeCasc4), -2.f, 2.f);
             PlaceInX = rack::simd::float_4{ Inplace1, Inplace2, -Inplace3 * 2, -Inplace4 * 2 };
             PlaceInY = rack::simd::float_4{ Inplace1 * 2, -Inplace2 * 2, Inplace3, -Inplace4 };
             
@@ -472,7 +473,15 @@ struct SimoneWidget : Widget {
     }
     BaseFunctions Functions;
     PathEquate Paths;
-    
+    int maxsize = 8;
+    rack::simd::float_4 currentframeX[30][30][8]{ 0 };
+    rack::simd::float_4 currentframeY[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe1X[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe1Y[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe2X[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe2Y[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe3X[30][30][8]{ 0 };
+    rack::simd::float_4 lastframe3Y[30][30][8]{ 0 };
     rack::simd::float_4 Wdt = 0.0;
     bool dtdown = false;
     void drawLayer(const DrawArgs& args, int layer) override {
@@ -483,37 +492,48 @@ struct SimoneWidget : Widget {
             float b = Simon->b;
             float a = Simon->a;
             float wave = Simon->wave;
-            float rad = Simon->Tradius;
-            rack::simd::float_4 spread(0.032, 0.0751, 0.121, 0.104); // = Simon->PlaceX;
 
-            float xd = 0.f;
-            float yd = 0.f;
-            float Lx = xd;
-            float Rx = xd;
-            float Ly = yd;
-            float Ry = yd;
-
+            rack::simd::float_4 speed = 0.04;
+            switch (Simon->rangetype) {
+            case 0: {
+                speed += (Simon->timePitch / 50.f);
+                break;
+            }
+            case 1: {
+                speed += log(Simon->timePitch / 50.f + 1);
+                break;
+            }
+            case 2: {
+                speed += log(Simon->timePitch / 150.f + 1) / 2.f;
+                break;
+            }
+            }
             rack::simd::float_4 xds(0.f);
             rack::simd::float_4 yds(0.f);
-            int maxsize = Simon->maxsize;
+            
             nvgBeginPath(args.vg);
             nvgFillColor(args.vg, nvgRGBAf(0.62, 0.52, 0.75, 0.12));
             nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
             nvgFill(args.vg);
             nvgClosePath(args.vg);
-            Functions.incrementPhase(Simon->timePitch, 4410, &Wdt, _2PI);
-            for (int i = 0; i < 30; i += 2) {
-                for (int j = 0; j < 30; j += 2) {
+            Functions.incrementPhase(speed, 4410, &Wdt, _2PI);
+
+            for (int i = 0; i < 30; i += 4) {
+                for (int j = 0; j < 30; j += 4) {
 
                     
-                    xd = i + simd::sin(Wdt[0]) * rad;
-                    yd = j + simd::cos(Wdt[0]) * rad;
-                    Lx = xd - spread[0];
-                    Ly = yd - spread[1];
-                    Rx = -xd + spread[2];
-                    Ry = -yd + spread[3];
-                    xds = rack::simd::float_4{ xd, Lx, Rx, 0 };
-                    yds = rack::simd::float_4{ yd, Ly, Ry, 0 };
+                    float xd1 = i + simd::sin(Wdt[0]);
+                    float yd1 = j + simd::cos(Wdt[0]);
+                    float xd2 = (i + 1) + simd::sin(Wdt[1]);
+                    float yd2 = (j + 1) + simd::cos(Wdt[1]);
+                    float xd3 = (i + 2) + simd::sin(Wdt[2]);
+                    float yd3 = (j + 2) + simd::cos(Wdt[2]);
+                    float xd4 = (i + 3) + simd::sin(Wdt[3]);
+                    float yd4 = (j + 3) + simd::cos(Wdt[3]);
+
+
+                    xds = rack::simd::float_4{ xd1, xd2, xd3, xd4 };
+                    yds = rack::simd::float_4{ yd1, yd2, yd3, yd4 };
                     for (int k = 0; k <= maxsize; k++) {
 
                         rack::simd::float_4 XDsprev = xds;
@@ -522,31 +542,40 @@ struct SimoneWidget : Widget {
                         xds = Paths.xchange(a, XDsprev, YDsprev, wave);
                         yds = Paths.ychange(b, XDsprev, YDsprev, wave);
 
-                        nvgBeginPath(args.vg);
-                        nvgFillColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a),
-                            Functions.lerp(0, 1, -PI, PI, b),
-                            Functions.lerp(0, 1, -_2PI, _2PI, a + xds[0] + yds[0]),
-                            0.36));
-                        nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, xds[0]), 
-                            Functions.lerp(0, drawboxY, -1, 1, yds[0]), 1, 1);
-                        nvgFill(args.vg);
+                        lastframe3X[i][j][k] = lastframe2X[i][j][k];
+                        lastframe3Y[i][j][k] = lastframe2Y[i][j][k];
+                        lastframe2X[i][j][k] = lastframe1X[i][j][k];
+                        lastframe2Y[i][j][k] = lastframe1Y[i][j][k];
+                        lastframe1X[i][j][k] = currentframeX[i][j][k];
+                        lastframe1Y[i][j][k] = currentframeY[i][j][k];
+                        currentframeX[i][j][k] = xds;
+                        currentframeY[i][j][k] = yds;
+                        if(k > 0) {
+                            for (int l = 0; l < 4; ++l) {
+                                nvgBeginPath(args.vg);
 
-                        nvgBeginPath(args.vg);
-                        nvgFillColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a),
-                            Functions.lerp(0, 1, -PI, PI, -b),
-                            Functions.lerp(0, 1, -_2PI, _2PI, b + xds[1] + yds[1]),
-                            0.32));
-                        nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, xds[1]), Functions.lerp(0, drawboxY, -1, 1, yds[1]), 1, 1);
-                        nvgFill(args.vg);
+                                nvgStrokeColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a),
+                                    Functions.lerp(0, 1, -PI, PI, b),
+                                    Functions.lerp(0, 1, -_2PI, _2PI, a + xds[l] + yds[l]),
+                                    0.36));
+                                nvgStrokeWidth(args.vg, 1.52);
+                                nvgLineCap(args.vg, NVG_ROUND);
+                                nvgMoveTo(args.vg, Functions.lerp(0, drawboxX, -1, 1, currentframeX[i][j][k][l]),
+                                    Functions.lerp(0, drawboxY, -1, 1, currentframeY[i][j][k][l]));
+                                nvgLineTo(args.vg, Functions.lerp(0, drawboxX, -1, 1, lastframe1X[i][j][k][l]),
+                                    Functions.lerp(0, drawboxY, -1, 1, lastframe1Y[i][j][k][l]));
+                                nvgStroke(args.vg);
+                                nvgStrokeWidth(args.vg, 1.02);
+                                nvgLineTo(args.vg, Functions.lerp(0, drawboxX, -1, 1, lastframe2X[i][j][k][l]),
+                                    Functions.lerp(0, drawboxY, -1, 1, lastframe2Y[i][j][k][l]));
+                                nvgStroke(args.vg);
+                                nvgStrokeWidth(args.vg, 0.52);
+                                nvgLineTo(args.vg, Functions.lerp(0, drawboxX, -1, 1, lastframe3X[i][j][k][l]),
+                                    Functions.lerp(0, drawboxY, -1, 1, lastframe3Y[i][j][k][l]));
 
-                        nvgBeginPath(args.vg);
-                        nvgFillColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a),
-                            Functions.lerp(0, 1, -_2PI, _2PI, xds[2] + yds[2]),
-                            Functions.lerp(0, 1, -PI, PI, b),
-                            0.32));
-                        nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, xds[2]), Functions.lerp(0, drawboxY, -1, 1, yds[2]), 1, 1);
-                        nvgFill(args.vg);
-
+                                nvgStroke(args.vg);
+                            }
+                        }
                           
                         
                     }
@@ -570,7 +599,7 @@ struct SimoneWidget : Widget {
                 nvgFill(args.vg);
 
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, nvgRGBAf(0.0, 0.0, 1.0, 0.36));
+                nvgFillColor(args.vg, nvgRGBAf(0.01, 0.2, 1.0, 0.36));
                 nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, TrailsX[t][2]),
                     Functions.lerp(0, drawboxY, -1, 1, -TrailsY[t][2]), 2, 2);
                 nvgFill(args.vg);
@@ -589,7 +618,8 @@ struct SimoneWidget : Widget {
 struct SimonePanelWidget : ModuleWidget {
     SimonePanelWidget(SimoneModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Simone_panel.svg")));
+        setPanel(createPanel(asset::plugin(pluginInstance, "res/Simone_panel.svg"), asset::plugin(pluginInstance, "res/Simone_panel-dark.svg")));
+
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
