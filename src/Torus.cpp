@@ -139,6 +139,7 @@ struct TorusModule : Module
         FM_PARAM,
         R_DIFF_PARAM,
         DRIVE_PARAM,
+        DRIVETYPE_SWITCH_PARAM,
         FOLLOW_BUTTON_PARAM,
         DETUNE_PARAM,
         NUM_PARAMS
@@ -180,6 +181,7 @@ struct TorusModule : Module
         configParam(LFO2_BUTTON_PARAM, 0.f, 1.f, 0.f, "LFO->2");
         configParam(LFO1_BUTTON_PARAM, 0.f, 1.f, 0.f, "LFO->1");
         configParam(EQUATION_SWITCH_PARAM, 0.f, 2.f, 0.f, "Equation");
+        configParam(DRIVETYPE_SWITCH_PARAM, 0.f, 2.f, 0.f, "Drive Type");
 
     }
     Follow* follow = new(Follow);
@@ -223,7 +225,7 @@ struct TorusModule : Module
     int step = 0;
     int phasenum = 0;
     int nearcnt = 0;
-    
+    int drivetype = 0;
     bool dirty = false;
     bool LFOmode1 = false;
     bool LFO1not = false;
@@ -250,7 +252,7 @@ struct TorusModule : Module
 
       
     
-        if (loopCounter % 64 == 0) {
+        if (loopCounter % 16 == 0) {
 
             checkInputs(args);
           
@@ -266,8 +268,8 @@ struct TorusModule : Module
         Functions.incrementPhase(nPitch, args.sampleRate, &nPhase);*/
         
         loopCounter++;
-        if (loopCounter % 2048 == 0) {
-            loopCounter = 1;
+        if (loopCounter % 2520 == 0) {
+            loopCounter = 0;
         }
     }
 
@@ -316,7 +318,16 @@ struct TorusModule : Module
         }
 
         drivepar = params[DRIVE_PARAM].value;
-        
+        drivetype = (int)params[DRIVETYPE_SWITCH_PARAM].value;
+    }
+
+    rack::simd::float_4 reflect(float lowlim, float uplim, rack::simd::float_4 Val) {
+        rack::simd::float_4 isup = Val > uplim;
+        rack::simd::float_4 islow = Val < lowlim;
+        rack::simd::float_4 upflecamt = fmax(Val, rack::simd::float_4{ uplim }) - uplim;
+        rack::simd::float_4 lowflecamt = fmin(Val, rack::simd::float_4{ lowlim }) - lowlim;             
+        rack::simd::float_4 output = rack::simd::ifelse(isup, uplim - upflecamt, rack::simd::ifelse(islow, lowlim - lowflecamt, Val));
+        return output;
     }
 
     void generateOutput(const ProcessArgs& args) {
@@ -356,15 +367,46 @@ struct TorusModule : Module
         float Yout = 0;
         float Zout = 0;
 
-        drive = (inputs[DRIVE_INPUT].isConnected()) ? abs(inputs[DRIVE_INPUT].getVoltage(0)) * (drivepar) : drivepar;
+        drive = (inputs[DRIVE_INPUT].isConnected()) ? abs(inputs[DRIVE_INPUT].getVoltage(0)) * (drivepar / 5.f) : drivepar;
         rack::simd::float_4 distortOuts[3];
         for (int i = 0; i < 3; ++i) {
-            //this drive is from VCV fundamental VCF
-            rack::simd::float_4 normwave = Coord[i] / ((R + r));
-            normwave *= pow((drive / 6.f), 3) + 1.f;
-            normwave = rack::simd::clamp(normwave, -3.f, 3.f);
-            normwave *= (27.f + normwave * normwave) / (27.f + 9.f * normwave * normwave);
+
+            rack::simd::float_4 normwave = Coord[i] / ((R + r)); //choose x, y, or z then normalize
+            
+
+            switch (drivetype) {
+            case 0: {
+                //this drive is from VCV fundamental VCF
+                normwave *= pow((drive / 6.f), 3) + 1.f;
+                normwave = rack::simd::clamp(normwave, -3.f, 3.f);
+                normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
+                break;
+            }
+            case 1: {
+                normwave *= pow(((drive ) / 6.f), 3)  + 1.f;
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.8f, 1.8f, normwave);
+                //normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
+                break;
+            }
+            case 2: {
+                normwave *= pow((drive / 6.f), 3) + 1.f;
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.5f, 1.5f, normwave);
+                normwave = reflect(-1.8f, 1.8f, normwave);
+                normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
+                break;
+            }
+            }           
             distortOuts[i] = normwave;
+            //Coord[i] = distortOuts[i] * (R + r);
         }
 
         for (int i = 0; i < 4; ++i) {
@@ -372,7 +414,10 @@ struct TorusModule : Module
             Yout += distortOuts[1][i];
             Zout += distortOuts[2][i];
         }
-
+        /*for (int i = 0; i < 3; ++i) {
+            
+        }*/
+        
         rack::simd::float_4 path{ Coord[0][0], Coord[1][0], Coord[2][0], 0.f};
         pathToDraw = std::vector<rack::simd::float_4>{ path, Zero, Zero, Zero};
 
@@ -380,7 +425,7 @@ struct TorusModule : Module
         float yLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Yout);
         float zLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Zout);
 
-        if (step % 800 == 0 ) {
+        if (step % 8 == 0 ) {
             dirty = true;
         }
         step++;
@@ -476,7 +521,7 @@ struct TorusDrawWidget : Widget {
 
         RotMatrixZ = Matrix.RotationXY(anglerot);
         RotMatrixX = Matrix.RotationYZ(angle);
-        ProjectMatrix = Matrix.Projection(1.f / 1.5f);
+        ProjectMatrix = Matrix.Projection(1.f / 1.2f);
 
         if (layer == 1) {
             int drawboxX = box.size.x;
@@ -558,6 +603,7 @@ struct TorusPanelWidget : ModuleWidget {
         addParam(createParam<VCVButton>(Vec(210, 134), module, TorusModule::LFO2_BUTTON_PARAM));
         addParam(createParam<VCVButton>(Vec(10, 134), module, TorusModule::LFO1_BUTTON_PARAM));
         addParam(createParam<PurpleSwitch>(Vec(10, 74), module, TorusModule::EQUATION_SWITCH_PARAM));
+        addParam(createParam<PurpleSwitch>(Vec(119, 202), module, TorusModule::DRIVETYPE_SWITCH_PARAM));
 
         addInput(createInput<PurplePort>(Vec(10, 300), module, TorusModule::BIG_PITCH_INPUT));
         addInput(createInput<PurplePort>(Vec(10, 332), module, TorusModule::LITTLE_PITCH_INPUT));
