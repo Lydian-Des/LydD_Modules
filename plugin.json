@@ -2,10 +2,9 @@
 	"slug": "LydD-Modules",
 	"name": "LydD Modules",
 	"author": "Lydian",
-    "license": "Do Whatever",
-    "version": "2.0.1.5",
-	"modules":
-	[
+	"license": "GPL-3.0-or-later",
+	"version": "2.0.16",
+	"modules": [
 		{
 			"slug": "Poppy-fields",
 			"name": "Poppy-Fields",
@@ -30,6 +29,6 @@
 			"description": "Toroidal Oscillator",
 			"tags": [ "VCO" ]
 		}
-		
-    ]
+
+	]
 }

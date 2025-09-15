@@ -1,4 +1,4 @@
-# VCV Rack Licenses
+# VCV Rack Licenses # 
 
 All VCV Rack **source code** is copyright © 2019 Andrew Belt and licensed under the [GNU General Public License v3.0](LICENSE-GPLv3.txt) with the "VCV Rack Non-Commercial Plugin License Exception", allowed under section 7 of GPLv3, and a commercial licensing option.
 
@@ -15,3 +15,12 @@ This means that non-commercial plugins do not need to be licensed under the GPLv
 If you wish to release a proprietary commercial plugin, email contact@vcvrack.com for commercial licensing. A commercial license is included for plugins sold in the [VCV Library](https://vcvrack.com/plugins.html).
 
 ---
+
+
+# LydD-Modules #
+
+This plugin is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This plugin is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this plugin. If not, see <https://www.gnu.org/licenses/>.
