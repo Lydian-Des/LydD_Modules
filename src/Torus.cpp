@@ -17,7 +17,7 @@ public:
     void buildPoints(rack::simd::float_4 Point) {
         Points.push_back(Point);
         
-        if (Points.size() > 200) {
+        if (Points.size() > 400) {
             Points.erase(Points.begin());
 
         }
@@ -163,6 +163,9 @@ struct TorusModule : Module
         NUM_OUTPUTS
 	};
 	enum LightIds {
+        LFO1_LIGHT,
+        LFO2_LIGHT,
+        FOLLOW_LIGHT,
         NUM_LIGHTS
     };
 
@@ -253,27 +256,34 @@ struct TorusModule : Module
       
     
         if (loopCounter % 16 == 0) {
-
-            checkInputs(args);
-          
+            checkInputs(args);         
         }
+
         generateOutput(args);
 
-        if (loopCounter % 4 == 0) {
-
+        if (loopCounter % 6 == 0) {
             follow->buildPoints(pathToDraw[0]);
-
         }
-       /* Functions.incrementPhase(tPitch, args.sampleRate, &tPhase);
-        Functions.incrementPhase(nPitch, args.sampleRate, &nPhase);*/
-        
+
+        if (loopCounter % 64 == 0) {
+            Lights(args);
+        }
+
         loopCounter++;
         if (loopCounter % 2520 == 0) {
             loopCounter = 0;
         }
     }
-
+    void Lights(const ProcessArgs& args) {
+        lights[LFO1_LIGHT].setBrightness(LFOmode1);
+        lights[LFO2_LIGHT].setBrightness(LFOmode2);
+        lights[FOLLOW_LIGHT].setBrightness(LFOllow);
+    }
     void checkInputs(const ProcessArgs& args) {
+        for (int o = X_OUTPUT; o != NUM_OUTPUTS; ++o) {
+            outputs[o].setChannels(1);
+        }
+
         Buttons.latchButton(params[LFO1_BUTTON_PARAM].value, &LFOmode1, &LFO1not);
         Buttons.latchButton(params[LFO2_BUTTON_PARAM].value, &LFOmode2, &LFO2not);
         Buttons.latchButton(params[FOLLOW_BUTTON_PARAM].value, &LFOllow, &LFOlnot);
@@ -340,24 +350,17 @@ struct TorusModule : Module
         float loudcomp = 3.1;
         switch (equation) {
         case 0: {
-
             Paths.Electron(R, r, tWinds, tPhases, nWinds, nPhases, Coord);
-
-
             break;
         }
         case 1: {
             loudcomp = 2.6;
             Paths.Folding(R, r, tWinds, tPhases, nWinds, nPhases,  Coord);
-
-
             break;
         }
         case 2: {
             loudcomp = 3.9;
             Paths.Torus(R, r, tWinds, tPhases, nWinds, nPhases, Coord);
-
-
             break;
         }
         }
@@ -588,6 +591,9 @@ struct TorusPanelWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 365)));
 
+        addChild(createLightCentered<MediumLight<RedLight>>(Vec(14, 126), module, TorusModule::LFO1_LIGHT));
+        addChild(createLightCentered<MediumLight<RedLight>>(Vec(214, 126), module, TorusModule::LFO2_LIGHT));
+        addChild(createLightCentered<MediumLight<RedLight>>(Vec(214, 71), module, TorusModule::FOLLOW_LIGHT));
 
         addParam(createParam<RoundHugeBlackKnob>(Vec(25, 165), module, TorusModule::BIG_PITCH_PARAM));
         addParam(createParam<RoundBlackKnob>(Vec(20, 240), module, TorusModule::LITTLE_PITCH_PARAM));

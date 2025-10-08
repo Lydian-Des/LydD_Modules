@@ -14,14 +14,21 @@ const float E = 2.7182818284590;
 
 
 struct Brots {
+    std::complex<float> andrewkayTan(std::complex<float> x) {
+        const float pisqby4 = 2.4674011002723397f;
+        const float oneminus8bypisq = 0.1894305308612978f;
+        std::complex<float> xsq = x * x;
+        return x * (pisqby4 - oneminus8bypisq * xsq) / (pisqby4 - xsq);
+    }
 
     std::complex<float> mandelbrot(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-
         return pow(Ztemp, EXP) + C;
     }
+
     std::complex<float> burningShip(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return pow(std::complex<float>(abs(real(Ztemp)), abs(imag(Ztemp))), EXP) + C;
     }
+
     std::complex<float> beetle(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         rack::simd::float_4 realZ(real(Ztemp));
         rack::simd::float_4 imagZ(imag(Ztemp));
@@ -29,22 +36,20 @@ struct Brots {
         rack::simd::float_4 Zinew = sin(imagZ);
         return pow(std::complex<float>(Zrnew[0], Zinew[0]), EXP) + C;
     }
+
     std::complex<float> bird(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         rack::simd::float_4 realZ(real(Ztemp));
         rack::simd::float_4 Zrnew = atan(realZ);
         return pow(std::complex<float>(Zrnew[0], abs(imag(Ztemp))), EXP) + C;
     }
+
     std::complex<float> daisy(float EXP, std::complex<float> C, std::complex<float> Ztemp, std::complex<float> Z) {
-
-        return tan(pow(C, EXP) * pow(Ztemp, E)) + (C - Ztemp);
-        //return pow(C, EXP) + pow(Ztemp, E) + Ztemp; //pow(std::complex<float>(tan((imag(Ztemp))), sin(abs(real(Ztemp)))), EXP) + C;
+        return andrewkayTan(pow(C, EXP) * pow(Ztemp, E)) + (C - Ztemp);
     }
+
     std::complex<float> unicorn(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-
-        return tan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
+        return andrewkayTan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
     }
-
-
 };
 
 
@@ -110,6 +115,8 @@ struct PoppyModule : Module
         INVERT_LIGHT,
         MIRROR_LIGHT,
         JULIA_LIGHT,
+        REVERSE_LIGHT,
+        ENUMS(QUALITY_LIGHT, 3),
         ENUMS(FRACTAL_TYPE_LIGHT, 3),
         ENUMS(AUX_TYPE_LIGHT, 3),
         NUM_LIGHTS
@@ -179,12 +186,11 @@ struct PoppyModule : Module
     BaseButtons button;
     Brots Brot;
 
+    int loopCounter = 0;
 
+    //vectors being filled with sequence
     std::vector<float> xCoord;
     std::vector<float> yCoord;
-       
-
-    int loopCounter = 0;
 
     //output ranges and bounding box for zoom
     int range = 2;
@@ -291,6 +297,7 @@ struct PoppyModule : Module
 
         if (loopCounter % 64 == 0) {
             connections(args);
+            Lights(args);
         }
         if (loopCounter % 16 == 0) {            
             createSequence(args);           
@@ -299,31 +306,95 @@ struct PoppyModule : Module
         generateOutput(args);
         ++loopCounter;
 
-        if (loopCounter % (int)args.sampleRate * 2 == 0) {
+        if (loopCounter % (int)(args.sampleRate / 2) == 0) {
             dirty = true;
             loopCounter = 0;
         }
        
     }
-    void connections(const ProcessArgs& args) {
-        outputs[X_CV_OUTPUT].setChannels(1);
-        outputs[Y_CV_OUTPUT].setChannels(1);
-        outputs[X_TRIG_OUTPUT].setChannels(1);
-        outputs[Y_TRIG_OUTPUT].setChannels(1);
-        outputs[AUX_OUTPUT].setChannels(1);
+    void Lights(const ProcessArgs& args) {
 
-        inZxconnect = inputs[Z_X_INPUT].isConnected();
-        inZyconnect = inputs[Z_YI_INPUT].isConnected();
-        inCxconnect = inputs[C_X_INPUT].isConnected();
-        inCyconnect = inputs[C_YI_INPUT].isConnected();
-        inEXPconnect = inputs[EXP_X_INPUT].isConnected();
-        inYClockconnect = inputs[YI_CLOCK_INPUT].isConnected();
-        inResetconnect = inputs[RESET_INPUT].isConnected();
-        inStartconnect = inputs[SEQ_START_INPUT].isConnected();
-        inSizeconnect = inputs[SEQ_LENGTH_INPUT].isConnected();
-        inReverseconnect = inputs[REVERSE_INPUT].isConnected();
-        inslewX = inputs[SLEW_X_INPUT].isConnected();
-        inslewY = inputs[SLEW_Y_INPUT].isConnected();
+        lights[MIRROR_LIGHT].setBrightness(mirror);
+        lights[INVERT_LIGHT].setBrightness(invert);
+        lights[JULIA_LIGHT].setBrightness(julia);
+        lights[REVERSE_LIGHT].setBrightness(reverse);
+
+        switch (fractal) {
+        case 0: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(1.0);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Mandelbrot";
+            break;
+        }
+        case 1: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.0);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(1.0);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Burning Ship";
+            break;
+        }
+        case 2: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.05);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.95);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Beetlebrot";
+            break;
+        }
+        case 3: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.62);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.38);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Bird";
+            break;
+        }
+        case 4: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.0);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.36);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.64);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Daisybrot-High CPU";
+            break;
+        }
+        case 5: {
+            lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.54);
+            lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.06);
+            lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.4);
+            paramQuantities[FRACT_BUTTON_PARAM]->name = "Unicron-High CPU";
+            break;
+        }
+        }
+
+        switch (auxType) {
+        case 0: {
+            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
+            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.4);
+            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.0);
+            paramQuantities[AUX_BUTTON_PARAM]->name = "Sum";
+            break;
+        }
+        case 1: {
+            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.0);
+            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.5);
+            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.6);
+            paramQuantities[AUX_BUTTON_PARAM]->name = "Magnitude";
+            break;
+        }
+        case 2: {
+            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
+            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.0);
+            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.5);
+            paramQuantities[AUX_BUTTON_PARAM]->name = "Centroid";
+            break;
+        }
+        case 3: {
+            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
+            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.4);
+            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.5);
+            paramQuantities[AUX_BUTTON_PARAM]->name = "Beginning of Cycle";
+            break;
+        }
+        }
+
         switch (quality) {
         case 0: {
             paramQuantities[QUALITY_BUTTON_PARAM]->name = "Pond";
@@ -338,6 +409,28 @@ struct PoppyModule : Module
             break;
         }
         }
+        lights[QUALITY_LIGHT + 0].setBrightness(quality == 2);
+        lights[QUALITY_LIGHT + 1].setBrightness(quality == 1);
+        lights[QUALITY_LIGHT + 2].setBrightness(quality == 0);
+    }
+    void connections(const ProcessArgs& args) {
+        for (int o = X_CV_OUTPUT; o != NUM_OUTPUTS; ++o) {
+            outputs[o].setChannels(1);
+        }
+
+        inZxconnect = inputs[Z_X_INPUT].isConnected();
+        inZyconnect = inputs[Z_YI_INPUT].isConnected();
+        inCxconnect = inputs[C_X_INPUT].isConnected();
+        inCyconnect = inputs[C_YI_INPUT].isConnected();
+        inEXPconnect = inputs[EXP_X_INPUT].isConnected();
+        inYClockconnect = inputs[YI_CLOCK_INPUT].isConnected();
+        inResetconnect = inputs[RESET_INPUT].isConnected();
+        inStartconnect = inputs[SEQ_START_INPUT].isConnected();
+        inSizeconnect = inputs[SEQ_LENGTH_INPUT].isConnected();
+        inReverseconnect = inputs[REVERSE_INPUT].isConnected();
+        inslewX = inputs[SLEW_X_INPUT].isConnected();
+        inslewY = inputs[SLEW_Y_INPUT].isConnected();
+        
 
         switch ((int)params[RANGE_SWITCH_PARAM].value) {
         case 0: {
@@ -375,6 +468,7 @@ struct PoppyModule : Module
         }
         }
         deClick.setCutoffFreq(2000.f / args.sampleRate);
+
     }
 
 
@@ -473,10 +567,6 @@ struct PoppyModule : Module
         if (mirror) {
             Cyi = -Cyi;
             Zyi = -Zyi;
-            lights[MIRROR_LIGHT].setBrightness(1.f);
-        }
-        else {
-            lights[MIRROR_LIGHT].setBrightness(0.f);
         }
 
         std::complex<float>C(Cx, Cyi);
@@ -486,10 +576,6 @@ struct PoppyModule : Module
             std::complex<float>Zswap = Z;
             Z = C;
             C = Zswap;
-            lights[JULIA_LIGHT].setBrightness(1.f);
-        }
-        else {
-            lights[JULIA_LIGHT].setBrightness(0.f);
         }
 
         for (int i = 0; i <= iters; ++i) {
@@ -498,55 +584,31 @@ struct PoppyModule : Module
             switch (fractal) {
             case 0: {
                 Z = Brot.mandelbrot(EXP, C, pastVal);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(1.0);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Mandelbrot";
                 fractOffset = 0.f;
                 break;
             }
             case 1: {
                 Z = Brot.burningShip(EXP, C, pastVal);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.0);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(1.0);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Burning Ship";
                 fractOffset = 0.1666667f;
                 break;
             }
             case 2: {
                 Z = Brot.beetle(EXP, C, pastVal);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.05);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.0);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.95);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Beetlebrot";
                 fractOffset = -0.1666667f;
                 break;
             }
             case 3: {
                 Z = Brot.bird(EXP, C, pastVal);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.62);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.38);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.0);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Bird";
                 fractOffset = 0.0833333f;
                 break;
             }
             case 4: {
                 Z = Brot.daisy(EXP, C, pastVal, Z);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.0);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.36);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.64);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Daisybrot-High CPU";
                 fractOffset = 0.3333333f;
                 break;
             }
             case 5: {
                 Z = Brot.unicorn(EXP, C, pastVal);
-                lights[FRACTAL_TYPE_LIGHT + 0].setBrightness(0.54);
-                lights[FRACTAL_TYPE_LIGHT + 1].setBrightness(0.06);
-                lights[FRACTAL_TYPE_LIGHT + 2].setBrightness(0.4);
-                paramQuantities[FRACT_BUTTON_PARAM]->name = "Unicron-High CPU";
                 fractOffset = -0.3333333f;
                 break;
             }
@@ -560,7 +622,7 @@ struct PoppyModule : Module
 
         zoomSpread = params[ZOOM_PARAM].value;
 
-        //making slew limiter RiseFall proportional to estimated time between clock pulses. 
+        //making slew limiter RiseFall proportional to estimated time between clock pulses(speedX, speedY). 
         float smoothnessX = -(params[SLEW_X_PARAM].value) + 1;
         if (inslewX) {
             float smooXput = Funct.lerp(0, 1, 0, 5, rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), 0.f, 5.f));
@@ -605,10 +667,6 @@ struct PoppyModule : Module
             cvValY = -cvValY;
             shiftValX = -shiftValX;
             shiftValY = -shiftValY;
-            lights[INVERT_LIGHT].setBrightness(1.f);
-        }
-        else {
-            lights[INVERT_LIGHT].setBrightness(0.f);
         }
         //Zooming in will spread outputs around 0
         cvValX *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
@@ -714,21 +772,11 @@ struct PoppyModule : Module
         case 0: {
             float sumOut = (slewingX + slewingY);
             outputs[AUX_OUTPUT].setVoltage(sumOut, 0);
-            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
-            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.4);
-            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.0);
-            paramQuantities[AUX_BUTTON_PARAM]->name = "Sum";
-
             break;
         }
         case 1: {
             float magOut =  loosesqrt(slewingX * slewingX + slewingY * slewingY);
             outputs[AUX_OUTPUT].setVoltage(magOut, 0);
-            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.0);
-            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.5);
-            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.6);
-            paramQuantities[AUX_BUTTON_PARAM]->name = "Magnitude";
-
             break;
         }
         case 2: {
@@ -741,21 +789,10 @@ struct PoppyModule : Module
             averageform = deClick.lowpass();
             float avelerp = Funct.lerp(_range, range, -2.f, 2.f, averageform);
             outputs[AUX_OUTPUT].setVoltage(avelerp, 0);
-            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
-            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.0);
-            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.5);
-            paramQuantities[AUX_BUTTON_PARAM]->name = "Centroid";
-
             break;
         }
-        case 3: {
-                
+        case 3: {                
             outputs[AUX_OUTPUT].setVoltage(BOCtrig, 0);
-            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.6);
-            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.4);
-            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.5);
-            paramQuantities[AUX_BUTTON_PARAM]->name = "Beginning of Cycle";
-
             break;
         }
             
@@ -1132,8 +1169,11 @@ struct PoppyWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(135, 185), module, PoppyModule::FRACTAL_TYPE_LIGHT));
         addChild(createLightCentered<MediumLight<BlueLight>>(Vec(167, 185), module, PoppyModule::JULIA_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(190, 305), module, PoppyModule::AUX_TYPE_LIGHT));
-        addChild(createLightCentered<MediumLight<BlueLight>>(Vec(187, 241), module, PoppyModule::INVERT_LIGHT));
+        addChild(createLightCentered<MediumLight<BlueLight>>(Vec(190, 241), module, PoppyModule::INVERT_LIGHT));
         addChild(createLightCentered<MediumLight<BlueLight>>(Vec(108, 331), module, PoppyModule::MIRROR_LIGHT));
+        addChild(createLightCentered<MediumLight<BlueLight>>(Vec(63, 160), module, PoppyModule::REVERSE_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(237,108), module, PoppyModule::QUALITY_LIGHT));
+
 
         addInput(createInput<PurplePort>(Vec(10, 30), module, PoppyModule::CLOCK_INPUT));
         addInput(createInput<PurplePort>(Vec(10, 65), module, PoppyModule::YI_CLOCK_INPUT));
