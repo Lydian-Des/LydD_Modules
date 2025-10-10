@@ -137,6 +137,32 @@ struct DadrasModule : Module
         configParam(AXIS_SWITCH_PARAM, 0.f, 2.f, 0.f, "Axis");
         configParam(WTYPE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Wander");
 
+        configInput(SPEED_INPUT, "Speed");
+        configInput(SPREAD_INPUT, "Separation");
+        configInput(TIME_PHASE_INPUT, "Phase");
+        configInput(SPEED_SHIFT_INPUT, "Difference");
+        configInput(INFLUENCE_DAD_INPUT, "Dad's Influence");
+        configInput(INFLUENCE_MOM_INPUT, "Mom's Influence");
+        configInput(SYNCH_INPUT, "Sync Lines (To Child)");
+        configInput(RESET_INPUT, "Reset");
+        configInput(A_INPUT, "Force");
+        configInput(B_INPUT, "Split");
+        configInput(G_INPUT, "Dwell");
+        configInput(O_INPUT, "Hold");
+
+        configOutput(L_X_OUTPUT, "Mom-X");
+        configOutput(L_Y_OUTPUT, "Mom-Y");
+        configOutput(L_Z_OUTPUT, "Mom-Z");
+        configOutput(L_W_OUTPUT, "Mom-W");
+        configOutput(C_X_OUTPUT, "Spawn-X");
+        configOutput(C_Y_OUTPUT, "Spawn-Y");
+        configOutput(C_Z_OUTPUT, "Spawn-Z");
+        configOutput(C_W_OUTPUT, "Spawn-W");
+        configOutput(R_X_OUTPUT, "Dad-X");
+        configOutput(R_Y_OUTPUT, "Dad-Y");
+        configOutput(R_Z_OUTPUT, "Dad-Z");
+        configOutput(R_W_OUTPUT, "Dad-W");
+
     }
   
     BaseFunctions Functions;

@@ -159,7 +159,6 @@ struct TorusModule : Module
         X_OUTPUT,
         Y_OUTPUT,
         Z_OUTPUT,
-
         NUM_OUTPUTS
 	};
 	enum LightIds {
@@ -173,36 +172,48 @@ struct TorusModule : Module
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(BIG_PITCH_PARAM, -5.f, 5.f, 0.f, "Big Circle");
         configParam(LITTLE_PITCH_PARAM, -5.f, 5.f, 0.f, "Little Circle");
-        configParam(R_DIFF_PARAM, -10.f, 42.f, 10.f, "Radial Difference");
-        configParam(DRIVE_PARAM, 0.f, 11.f, 0.f, "Drive");
-
-        configParam(LITTLE_WIND_PARAM, 1.f, 6.f, 1.f, "Little Windings");
-        configParam(BIG_WIND_PARAM, 1.f, 6.f, 1.f, "Big Windings");
-        configParam(FM_PARAM, -1.f, 1.f, 0.f, "FM");
-        configParam(DETUNE_PARAM, -1.f, 1.f, 0.f, "Detune");
-
+        configParam(EQUATION_SWITCH_PARAM, 0.f, 2.f, 0.f, "Equation");
         configParam(LFO2_BUTTON_PARAM, 0.f, 1.f, 0.f, "LFO->2");
         configParam(LFO1_BUTTON_PARAM, 0.f, 1.f, 0.f, "LFO->1");
-        configParam(EQUATION_SWITCH_PARAM, 0.f, 2.f, 0.f, "Equation");
+        configParam(BIG_WIND_PARAM, 1.f, 6.f, 1.f, "Big Windings");
+        configParam(LITTLE_WIND_PARAM, 1.f, 6.f, 1.f, "Little Windings");  
+        configParam(FM_PARAM, -1.f, 1.f, 0.f, "FM");
+        configParam(R_DIFF_PARAM, -10.f, 42.f, 10.f, "Radial Difference");
+        configParam(DRIVE_PARAM, 0.f, 11.f, 0.f, "Drive");
         configParam(DRIVETYPE_SWITCH_PARAM, 0.f, 2.f, 0.f, "Drive Type");
+        configParam(FOLLOW_BUTTON_PARAM, 0.f, 1.f, 0.f, " Little Pitch Follow");
+        configParam(DETUNE_PARAM, -1.f, 1.f, 0.f, "Detune");
+
+        configInput(BIG_PITCH_INPUT, "Big-Pitch");
+        configInput(LITTLE_PITCH_INPUT, "Little-Pitch");
+        configInput(BIG_WIND_INPUT, "Big Windings");
+        configInput(LITTLE_WIND_INPUT, "Little Windings");
+        configInput(FM_INPUT, "Phase Modulation");
+        configInput(R_DIFF_INPUT, "Little Radius (inverted)");
+        configInput(DRIVE_INPUT, "Drive");
+        configInput(SYNC_INPUT, "Sync");
+
+        configOutput(X_OUTPUT, "X-Axis");
+        configOutput(Y_OUTPUT, "Y-Axis");
+        configOutput(Z_OUTPUT, "Z-Axis");
 
     }
+
     Follow* follow = new(Follow);
     BaseFunctions Functions;
     BaseButtons Buttons;
     BaseMatrices Matrix;
     PathEquate Paths;
     int currentPolyphony = 1;
-    int currentBanks = 1;
     int loopCounter = 0;
   
-  
+    std::vector<rack::simd::float_4> pathToDraw{ 0 };
 
     // TORUS
     float x = 1.0;
     float y = 1.0;
     float z = 1.0;
-    rack::simd::float_4 Coord[3];
+    rack::simd::float_4 Coord[3]{ 0 };
 
     float R = 45.0;
     float r = 45.0;
@@ -216,14 +227,14 @@ struct TorusModule : Module
     float drivepar = 0.0;
     float drive = 0.0;
     float detune = 0.0;
-    rack::simd::float_4 tPitches; 
-    rack::simd::float_4 tPhases;
-    rack::simd::float_4 tWinds;
-    rack::simd::float_4 tWindsA;
-    rack::simd::float_4 nPitches;
-    rack::simd::float_4 nPhases;
-    rack::simd::float_4 nWinds;
-    rack::simd::float_4 nWindsA;
+    rack::simd::float_4 tPitches{ 0 };
+    rack::simd::float_4 tPhases{ 0 };
+    rack::simd::float_4 tWinds{ 0 };
+    rack::simd::float_4 tWindsA{ 0 };
+    rack::simd::float_4 nPitches{ 0 };
+    rack::simd::float_4 nPhases{ 0 };
+    rack::simd::float_4 nWinds{ 0 };
+    rack::simd::float_4 nWindsA{ 0 };
 
     int step = 0;
     int phasenum = 0;
@@ -241,44 +252,35 @@ struct TorusModule : Module
     bool eqset = false;
     float refFreq = 130.813;
     
-    
-    std::vector<rack::simd::float_4> pathToDraw;
-
-
- 
     rack::dsp::BooleanTrigger SyncBeat;
-    rack::dsp::SlewLimiter _slewlimit{};
-   // rack::dsp::SlewLimiter _slewlimitX{};
    
-
-    void process(const ProcessArgs& args) override {
-
-      
-    
+    void process(const ProcessArgs& args) override {   
         if (loopCounter % 16 == 0) {
             checkInputs(args);         
         }
 
+        if (loopCounter % 8 == 0) {
+            dirty = true;
+        }
         generateOutput(args);
-
         if (loopCounter % 6 == 0) {
             follow->buildPoints(pathToDraw[0]);
         }
-
         if (loopCounter % 64 == 0) {
             Lights(args);
         }
-
         loopCounter++;
         if (loopCounter % 2520 == 0) {
             loopCounter = 0;
         }
     }
+
     void Lights(const ProcessArgs& args) {
         lights[LFO1_LIGHT].setBrightness(LFOmode1);
         lights[LFO2_LIGHT].setBrightness(LFOmode2);
         lights[FOLLOW_LIGHT].setBrightness(LFOllow);
     }
+
     void checkInputs(const ProcessArgs& args) {
         for (int o = X_OUTPUT; o != NUM_OUTPUTS; ++o) {
             outputs[o].setChannels(1);
@@ -428,11 +430,7 @@ struct TorusModule : Module
         float yLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Yout);
         float zLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Zout);
 
-        if (step % 8 == 0 ) {
-            dirty = true;
-        }
-        step++;
-        step %= 2520;
+
 
 
         outputs[X_OUTPUT].setVoltage(xLerp, 0);
@@ -452,6 +450,20 @@ struct TorusModule : Module
         tPhases += tPM;
         nPhases += nPM;
 
+    }
+
+    void onReset(const ResetEvent& e) override {
+        Module::onReset(e);
+        loopCounter = 0;
+        tPhases = 0;
+        nPhases = 0;
+        for (int i = 0; i < 3; ++i) {
+            Coord[i] = 0;
+        }
+    }
+
+    void onRemove(const RemoveEvent& e) override {
+        delete follow;
     }
 
     json_t* dataToJson() override {

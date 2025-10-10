@@ -102,6 +102,7 @@ struct SimoneModule : Module
         NUM_OUTPUTS
     };
     enum LightIds {
+        ENUMS(RANGE_LIGHTS, 3),
         NUM_LIGHTS
     };
 
@@ -127,6 +128,36 @@ struct SimoneModule : Module
         for (int i = 0; i < 3; ++i) {
             configParam(OFFSET_PARAMS + i, -12.f, 12.f, 0.f, "offset");
         }
+
+        configInput(SPEED1_INPUT, "Speed - 1");
+        configInput(SPEED2_INPUT, "Speed - 2");
+        configInput(SPEED3_INPUT, "Speed - 3");
+        configInput(SPEED4_INPUT, "Speed - 4");
+        configInput(FM_INPUT, "Frequency Mod");
+        configInput(PM_INPUT, "Phase Mod");
+        configInput(POSITION1_INPUT, "Position -1");
+        configInput(POSITION2_INPUT, "Position -2");
+        configInput(POSITION3_INPUT, "Position -3");
+        configInput(POSITION4_INPUT, "Position -4");
+        configInput(WAVE_INPUT, "Wave");
+        configInput(T_RAD_INPUT, "Gain");
+        configInput(A_INPUT, "Alpha");
+        configInput(B_INPUT, "Beta");
+        configInput(ITER1_INPUT, "Pull - 1");
+        configInput(ITER2_INPUT, "Pull - 2");
+        configInput(ITER3_INPUT, "Pull - 3");
+        configInput(ITER4_INPUT, "Pull - 4");
+
+        configOutput(X_1_OUTPUT, "X - 1");
+        configOutput(X_2_OUTPUT, "X - 2");
+        configOutput(X_3_OUTPUT, "X - 3");
+        configOutput(X_4_OUTPUT, "X - 4");
+        configOutput(Y_1_OUTPUT, "Y - 1");
+        configOutput(Y_2_OUTPUT, "Y - 2");
+        configOutput(Y_3_OUTPUT, "Y - 3");
+        configOutput(Y_4_OUTPUT, "Y - 4");
+        configOutput(MIX_X_OUTPUT, "Mix - X");
+        configOutput(MIX_Y_OUTPUT, "Mix - Y");
     }
 
 
@@ -220,6 +251,10 @@ struct SimoneModule : Module
     }
 
     void checkInputs(const ProcessArgs& args) {
+        for (int o = X_1_OUTPUT; o != NUM_OUTPUTS; ++o) {
+            outputs[o].setChannels(1);
+        }
+
         isinWAVE = inputs[WAVE_INPUT].isConnected();
         isinRAD = inputs[T_RAD_INPUT].isConnected();
         isinA = inputs[A_INPUT].isConnected();
@@ -240,6 +275,10 @@ struct SimoneModule : Module
         isinSpeed4 = inputs[SPEED4_INPUT].isConnected();
         dcRemoveX.setCutoffFreq(15.2f / args.sampleRate);
         dcRemoveY.setCutoffFreq(15.2f / args.sampleRate);
+
+        lights[RANGE_LIGHTS + 0].setBrightness(rangetype == 0);
+        lights[RANGE_LIGHTS + 1].setBrightness(rangetype == 1);
+        lights[RANGE_LIGHTS + 2].setBrightness(rangetype == 2);
     }
 
     float exponlerp(float newmin, float newmax, float oldmin, float oldmax, float pos) {
@@ -626,6 +665,7 @@ struct SimonePanelWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 365)));
 
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(Vec(273, 60), module, SimoneModule::RANGE_LIGHTS));
 
         addParam(createParam<RoundHugeBlackKnob>(Vec(123, 158), module, SimoneModule::SPEED_PARAM));
         addParam(createParam<RoundSmallBlackKnob>(Vec(234, 150), module, SimoneModule::FM_PARAM));

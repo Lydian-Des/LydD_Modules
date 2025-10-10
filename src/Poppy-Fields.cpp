@@ -171,8 +171,9 @@ struct PoppyModule : Module
         configInput(EXP_X_INPUT, "Exponent-X In");
         configInput(SEQ_START_INPUT, "Start Point");
         configInput(SEQ_LENGTH_INPUT, "Sequence Length");
-       
-        
+        configInput(SLEW_X_INPUT, "Slew-X");
+        configInput(SLEW_Y_INPUT, "Slew-Y");
+   
         configOutput(X_CV_OUTPUT, "X CV Out");
         configOutput(XSHIFT_CV_OUTPUT, "X Shift register CV Out");
         configOutput(X_TRIG_OUTPUT, "X trig Out");
