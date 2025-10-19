@@ -279,6 +279,20 @@ struct TorusModule : Module
         lights[LFO1_LIGHT].setBrightness(LFOmode1);
         lights[LFO2_LIGHT].setBrightness(LFOmode2);
         lights[FOLLOW_LIGHT].setBrightness(LFOllow);
+        switch (equation) {
+        case 0: {
+            paramQuantities[EQUATION_SWITCH_PARAM]->name = "Electron";
+            break;
+        }
+        case 1: {
+            paramQuantities[EQUATION_SWITCH_PARAM]->name = "Folded";
+            break;
+        }
+        case 2: {
+            paramQuantities[EQUATION_SWITCH_PARAM]->name = "Toroidal";
+            break;
+        }
+        }
     }
 
     void checkInputs(const ProcessArgs& args) {
@@ -349,6 +363,18 @@ struct TorusModule : Module
         //rack::simd::float_4 nFM = nPitches;// *(inFM + 1.f);
         rack::simd::float_4 tPM = tPitches * inPM * args.sampleTime;
         rack::simd::float_4 nPM = nPitches * inPM * args.sampleTime;
+
+        bool syncset = (isinsync) ? inputs[SYNC_INPUT].getVoltage(0) > 0.f : false;
+        bool sync = SyncBeat.process(syncset);
+        if (sync) {
+            tPhases = Zero;
+            nPhases = Zero;
+        }
+        Functions.incrementPhase(tPitches, args.sampleRate, &tPhases, 48.f * PI);
+        Functions.incrementPhase(nPitches, args.sampleRate, &nPhases, 48.f * PI);
+        tPhases += tPM;
+        nPhases += nPM;
+
         float loudcomp = 3.1;
         switch (equation) {
         case 0: {
@@ -361,12 +387,12 @@ struct TorusModule : Module
             break;
         }
         case 2: {
-            loudcomp = 3.9;
+            loudcomp = 3.5;
             Paths.Torus(R, r, tWinds, tPhases, nWinds, nPhases, Coord);
             break;
         }
         }
-
+        loudcomp *= (drive / 10.f) + 1.f;
         
         float Xout = 0;
         float Yout = 0;
@@ -382,13 +408,14 @@ struct TorusModule : Module
             switch (drivetype) {
             case 0: {
                 //this drive is from VCV fundamental VCF
-                normwave *= pow((drive / 6.f), 3) + 1.f;
-                normwave = rack::simd::clamp(normwave, -3.f, 3.f);
+                normwave *= pow((drive / 4.f), 3) + 1.f;
+                normwave = rack::simd::clamp(normwave, -(loudcomp), loudcomp);
                 normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
                 break;
             }
             case 1: {
-                normwave *= pow(((drive ) / 6.f), 3)  + 1.f;
+                //8 stages of a wavefolder
+                normwave *= pow((drive / 3.f), 2) + 1.f;
                 normwave = reflect(-1.5f, 1.5f, normwave);
                 normwave = reflect(-1.5f, 1.5f, normwave);
                 normwave = reflect(-1.5f, 1.5f, normwave);
@@ -397,16 +424,13 @@ struct TorusModule : Module
                 normwave = reflect(-1.5f, 1.5f, normwave);
                 normwave = reflect(-1.5f, 1.5f, normwave);
                 normwave = reflect(-1.8f, 1.8f, normwave);
-                //normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
+                normwave = rack::simd::clamp(normwave, -(loudcomp), loudcomp);
                 break;
             }
             case 2: {
-                normwave *= pow((drive / 6.f), 3) + 1.f;
-                normwave = reflect(-1.5f, 1.5f, normwave);
-                normwave = reflect(-1.5f, 1.5f, normwave);
-                normwave = reflect(-1.5f, 1.5f, normwave);
-                normwave = reflect(-1.8f, 1.8f, normwave);
-                normwave *= (34.f + normwave * normwave) / (34.f + 5.f * normwave * normwave);
+                //simple clipping
+                normwave *= pow((drive / 6.f), 4) + 1.f;
+                normwave = rack::simd::clamp(normwave, -(loudcomp / 4.f), loudcomp / 4.f);
                 break;
             }
             }           
@@ -436,19 +460,6 @@ struct TorusModule : Module
         outputs[X_OUTPUT].setVoltage(xLerp, 0);
         outputs[Y_OUTPUT].setVoltage(yLerp, 0);
         outputs[Z_OUTPUT].setVoltage(zLerp, 0);
-
-
-
-        bool syncset = (isinsync) ? inputs[SYNC_INPUT].getVoltage(0) > 0.f : false;
-        bool sync = SyncBeat.process(syncset);
-        if (sync) {
-            tPhases = Zero;
-            nPhases = Zero;
-        }
-        Functions.incrementPhase(tPitches, args.sampleRate, &tPhases, 48.f * PI);
-        Functions.incrementPhase(nPitches, args.sampleRate, &nPhases, 48.f * PI);
-        tPhases += tPM;
-        nPhases += nPM;
 
     }
 

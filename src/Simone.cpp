@@ -369,7 +369,7 @@ struct SimoneModule : Module
             float ain = (isinA) ? Functions.lerp(-PI, PI, -5, 5, inputs[A_INPUT].getVoltage(0)) : 0.0;
             float bin = (isinB) ? Functions.lerp(-PI, PI, -5, 5, inputs[B_INPUT].getVoltage(0)) : 0.0;
             a = rack::math::clamp(apar + ain, -_2PI, _2PI);
-            b = rack::math::clamp(bpar + bin, -_2PI, _2PI);
+            b = rack::math::clamp(bpar + bin, -_2PI, _2PI) - 1.9f;
 
             float wavein = (isinWAVE) ? (Functions.lerp(-2, 2, -5, 5, inputs[WAVE_INPUT].getVoltage(0))) : 1.0;
             wave = rack::math::clamp((wavein * wavepar), -2.f, 2.f);
