@@ -5,15 +5,10 @@
 #include <cmath>
 #include <vector>
 
-
-const std::complex<float>i(0.0, 1.0);
 const float E = 2.7182818284590;
 
-
-
-
-
-struct Brots {
+//can I wrap this and the switch struct in a class without th functions becoming 'members' and breaking the array
+using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::complex<float>);
     std::complex<float> andrewkayTan(std::complex<float> x) {
         const float pisqby4 = 2.4674011002723397f;
         const float oneminus8bypisq = 0.1894305308612978f;
@@ -21,15 +16,15 @@ struct Brots {
         return x * (pisqby4 - oneminus8bypisq * xsq) / (pisqby4 - xsq);
     }
 
-    std::complex<float> mandelbrot(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
+    std::complex<float> Mandelbrot(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return pow(Ztemp, EXP) + C;
     }
 
-    std::complex<float> burningShip(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
+    std::complex<float> BurningShip(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return pow(std::complex<float>(abs(real(Ztemp)), abs(imag(Ztemp))), EXP) + C;
     }
 
-    std::complex<float> beetle(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
+    std::complex<float> Beetle(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         rack::simd::float_4 realZ(real(Ztemp));
         rack::simd::float_4 imagZ(imag(Ztemp));
         rack::simd::float_4 Zrnew = sin(realZ);
@@ -37,21 +32,52 @@ struct Brots {
         return pow(std::complex<float>(Zrnew[0], Zinew[0]), EXP) + C;
     }
 
-    std::complex<float> bird(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
+    std::complex<float> Bird(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         rack::simd::float_4 realZ(real(Ztemp));
         rack::simd::float_4 Zrnew = atan(realZ);
         return pow(std::complex<float>(Zrnew[0], abs(imag(Ztemp))), EXP) + C;
     }
 
-    std::complex<float> daisy(float EXP, std::complex<float> C, std::complex<float> Ztemp, std::complex<float> Z) {
+    std::complex<float> Daisy(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return andrewkayTan(pow(C, EXP) * pow(Ztemp, E)) + (C - Ztemp);
     }
 
-    std::complex<float> unicorn(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
+    std::complex<float> Unicorn(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return andrewkayTan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
     }
-};
+    struct brotPicker {
 
+        Brot_Pick chooseFractal(int fractal) {
+            switch (fractal) {
+            case 0: {
+                return Mandelbrot;
+                break;
+            }
+            case 1: {
+                return BurningShip;
+                break;
+            }
+            case 2: {
+                return Beetle;
+                break;
+            }
+            case 3: {
+                return Bird;
+                break;
+            }
+            case 4: {
+                return Daisy;
+                break;
+            }
+            case 5: {
+                return Unicorn;
+                break;
+            }
+            }
+            return nullptr;
+        }
+    };
+    
 
 struct PoppyModule : Module
 {
@@ -126,25 +152,23 @@ struct PoppyModule : Module
     const int iters = 64;
 
     PoppyModule() {
-        // Your module must call config from its constructor, passing in
-        // how many ins, outs, etc... it has.
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(Z_X_PARAM, -1.8, 1.8, 0, "Z-X");
-        configParam(Z_YI_PARAM, -1.8, 1.8, 0, "Z-Yi");
-        configParam(C_X_PARAM, -1.8, 1.8, 0, "C-X");
-        configParam(C_YI_PARAM, -1.8, 1.8, 0, "C-Yi");
-        configParam(EXP_X_PARAM, 1.75, 5, 2, "Exponent-X");
-        configParam(ITERS_PARAM, 1, iters, 32, "Iterations");
+        configParam(Z_X_PARAM, -1.8f, 1.8f, 0.f, "Z-X");
+        configParam(Z_YI_PARAM, -1.8f, 1.8f, 0.f, "Z-Yi");
+        configParam(C_X_PARAM, -1.8f, 1.8f, 0.f, "C-X");
+        configParam(C_YI_PARAM, -1.8f, 1.8f, 0.f, "C-Yi");
+        configParam(EXP_X_PARAM, 1.75f, 5.f, 2.f, "Exponent-X");
+        configParam(ITERS_PARAM, 1.f, iters, 32.f, "Iterations");
         paramQuantities[ITERS_PARAM]->snapEnabled = true;
-        configParam(SEQ_START_PARAM, 0, iters, 0, "Start Point");
+        configParam(SEQ_START_PARAM, 0.f, iters, 0.f, "Start Point");
         paramQuantities[SEQ_START_PARAM]->snapEnabled = true;
-        configParam(SHIFT_REGISTER_PARAM, 1, 4, 1, "Shift");
+        configParam(SHIFT_REGISTER_PARAM, 1.f, 4.f, 1.f, "Shift");
         paramQuantities[SHIFT_REGISTER_PARAM]->snapEnabled = true;
-        configParam(SLEW_X_PARAM, 0, 1, 0, "Slew X");
-        configParam(SLEW_Y_PARAM, 0, 1, 0, "Slew Y");
+        configParam(SLEW_X_PARAM, 0.f, 1.f, 0.f, "Slew X");
+        configParam(SLEW_Y_PARAM, 0.f, 1.f, 0.f, "Slew Y");
         configParam(MOVE_X_PARAM, -1.8, 1.8, 0, "Move-X");
-        configParam(MOVE_YI_PARAM, -1.8, 1.8, 0, "Move-Yi");
-        configParam(ZOOM_PARAM, 1, 50, 1, "Zoom");
+        configParam(MOVE_YI_PARAM, -1.8f, 1.8f, 0.f, "Move-Yi");
+        configParam(ZOOM_PARAM, 1.f, 15.f, 1.f, "Zoom");
        
         configSwitch(FRACT_BUTTON_PARAM, 0.f, 1.f, 0.f, "Fractal");
         configSwitch(JULIA_BUTTON_PARAM, 0.f, 1.f, 0.f, "Julia");
@@ -185,10 +209,11 @@ struct PoppyModule : Module
 
     BaseFunctions Funct;
     BaseButtons button;
-    Brots Brot;
+    brotPicker Brot;
 
     int loopCounter = 0;
 
+    Brot_Pick brotType = Brot.chooseFractal(0);
     //vectors being filled with sequence
     std::vector<float> xCoord;
     std::vector<float> yCoord;
@@ -306,11 +331,7 @@ struct PoppyModule : Module
         
         generateOutput(args);
         ++loopCounter;
-
-        if (loopCounter % (int)(args.sampleRate / 2) == 0) {
-            dirty = true;
-            loopCounter = 0;
-        }
+        loopCounter %= 2520;
        
     }
     void Lights(const ProcessArgs& args) {
@@ -398,21 +419,25 @@ struct PoppyModule : Module
 
         switch (quality) {
         case 0: {
-            paramQuantities[QUALITY_BUTTON_PARAM]->name = "Pond";
+            paramQuantities[QUALITY_BUTTON_PARAM]->name = "Blind Lines - low GPU";
             break;
         }
         case 1: {
-            paramQuantities[QUALITY_BUTTON_PARAM]->name = "Flower";
+            paramQuantities[QUALITY_BUTTON_PARAM]->name = "MonoChrome";
             break;
         }
         case 2: {
+            paramQuantities[QUALITY_BUTTON_PARAM]->name = "Flower";
+            break;
+        }
+        case 3: {
             paramQuantities[QUALITY_BUTTON_PARAM]->name = "BuddhaBrot";
             break;
         }
         }
-        lights[QUALITY_LIGHT + 0].setBrightness(quality == 2);
-        lights[QUALITY_LIGHT + 1].setBrightness(quality == 1);
-        lights[QUALITY_LIGHT + 2].setBrightness(quality == 0);
+        lights[QUALITY_LIGHT + 0].setBrightness(quality == 3 && quality != 0);
+        lights[QUALITY_LIGHT + 1].setBrightness(quality == 2 && quality != 0);
+        lights[QUALITY_LIGHT + 2].setBrightness(quality == 1 && quality != 0);
     }
     void connections(const ProcessArgs& args) {
         for (int o = X_CV_OUTPUT; o != NUM_OUTPUTS; ++o) {
@@ -470,22 +495,38 @@ struct PoppyModule : Module
         }
         deClick.setCutoffFreq(2000.f / args.sampleRate);
 
+        button.incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
+        button.incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
+        button.incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 4, &quality);
+        button.latchButton(params[JULIA_BUTTON_PARAM].value, &julia, &jul);
+        brotType = Brot.chooseFractal(fractal);
     }
 
 
     void createSequence(const ProcessArgs& args) {
     
-        button.incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
-        button.incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
-        button.incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 3, &quality);
-        button.latchButton(params[JULIA_BUTTON_PARAM].value, &julia, &jul);
+        
         button.latchButton(params[MIRROR_BUTTON_PARAM].value, &mirror, &mir);
         button.latchButton(params[INVERT_BUTTON_PARAM].value, &invert, &inv);
-        button.latchButton(params[REVERSE_BUTTON_PARAM].value, &reverse, &rev);
-        button.momentButton(params[CLOCK_BUTTON_PARAM].value, &clockTapSet, &clockTapReset);
-        button.momentButton(params[RESET_BUTTON_PARAM].value, &reset, &res);
+        button.momentButton(params[CLOCK_BUTTON_PARAM].value, &clockTapSet, &clockTapReset);      
         button.momentButton(params[C_TO_MOVE_BUTTON_PARAM].value, &CtoMove, &CM);
         button.momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
+
+        if (inResetconnect) {
+            button.momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
+        }
+        else {
+            button.momentButton(params[RESET_BUTTON_PARAM].value, &reset, &res);
+        }
+   
+        if (inReverseconnect) {
+            bool reversegate = inputs[REVERSE_INPUT].getVoltage(0) > 1.f
+                || params[REVERSE_BUTTON_PARAM].value > 1.f;
+            button.latchButton(reversegate, &reverse, &rev);
+        }
+        else {
+            button.latchButton(params[REVERSE_BUTTON_PARAM].value, &reverse, &rev);
+        }
 
         shiftOffset = params[SHIFT_REGISTER_PARAM].value;
 
@@ -499,12 +540,8 @@ struct PoppyModule : Module
             seqstart = (int)Funct.lerp(0, iters, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
             seqstart = seqstart > 0 ? seqstart : 0;
         }
-        if (inReverseconnect) {
-            button.latchButton(inputs[REVERSE_INPUT].getVoltage(0), &reverse, &rev);
-        }
-        if (inResetconnect) {
-            button.momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
-        }
+        
+        
         if (reset) {
             Xseqstep = 0;
             Yseqstep = 0;
@@ -562,8 +599,8 @@ struct PoppyModule : Module
         float Zypar = params[Z_YI_PARAM].value;
         float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0;
         float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0;
-        Zx = rack::math::clamp(Funct.lerp(-1, 1, -5, 5, Zxin) + Zxpar, -1.5f, 1.5f);
-        Zyi = rack::math::clamp(Funct.lerp(-1, 1, -5, 5, Zyin) + Zypar, -1.5f, 1.5f);
+        Zx = rack::math::clamp(Funct.lerp(-1.f, 1.f, -5, 5, Zxin) + Zxpar, -1.5f, 1.5f);
+        Zyi = rack::math::clamp(Funct.lerp(-1.f, 1.f, -5, 5, Zyin) + Zypar, -1.5f, 1.5f);
               
         if (mirror) {
             Cyi = -Cyi;
@@ -578,42 +615,11 @@ struct PoppyModule : Module
             Z = C;
             C = Zswap;
         }
-
+        
         for (int i = 0; i <= iters; ++i) {
             std::complex<float>pastVal = Z;
+            Z = brotType(EXP, C, pastVal);
 
-            switch (fractal) {
-            case 0: {
-                Z = Brot.mandelbrot(EXP, C, pastVal);
-                fractOffset = 0.f;
-                break;
-            }
-            case 1: {
-                Z = Brot.burningShip(EXP, C, pastVal);
-                fractOffset = 0.1666667f;
-                break;
-            }
-            case 2: {
-                Z = Brot.beetle(EXP, C, pastVal);
-                fractOffset = -0.1666667f;
-                break;
-            }
-            case 3: {
-                Z = Brot.bird(EXP, C, pastVal);
-                fractOffset = 0.0833333f;
-                break;
-            }
-            case 4: {
-                Z = Brot.daisy(EXP, C, pastVal, Z);
-                fractOffset = 0.3333333f;
-                break;
-            }
-            case 5: {
-                Z = Brot.unicorn(EXP, C, pastVal);
-                fractOffset = -0.3333333f;
-                break;
-            }
-            }
             if (abs(Z) > 2 || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
                 Z = std::complex<float>(Cx, Cyi);
             }
@@ -670,10 +676,11 @@ struct PoppyModule : Module
             shiftValY = -shiftValY;
         }
         //Zooming in will spread outputs around 0
-        cvValX *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
-        cvValY *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
-        shiftValX *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
-        shiftValY *= log10(zoomSpread) + 1; //Funct.lerp(1, 2, 1, 50, zoomSpread);
+        float zoomFactor = 1.f + log10(zoomSpread);
+        cvValX *= zoomFactor;
+        cvValY *= zoomFactor;
+        shiftValX *= zoomFactor;
+        shiftValY *= zoomFactor;
 
         //trying to change it up a bit(a 5th to be real) if it moves straight horizontal or vertical
         bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.0416f);
@@ -852,10 +859,71 @@ public:
         memset(Kvals, 1, buf_size);
     }
     void Empty() {
+        
         for (size_t i = 0; i < buf_size; ++i) {
             this->Kvals[i] = 1;
         }
     }
+
+    void MakeColor(int index, float red, float green, float blue, float alpha) {
+        this->Kvals[index * 4 + 0] = red;
+        this->Kvals[index * 4 + 1] = green;
+        this->Kvals[index * 4 + 2] = blue;
+        this->Kvals[index * 4 + 3] = alpha;
+    }
+
+    void HSLtoRGB255(float h, float s, float l, float* r, float* g, float* b)
+    {
+        if (h > 360.f) h -= 360.f;
+        float c = (1 - abs(2.f * l - 1)) * s;
+        float _h = h / 60.f;
+        float x = c * (1 - abs(fmod(_h, 2) - 1));
+        float m = l - (c / 2.f);
+        float R1 = 0;
+        float G1 = 0;
+        float B1 = 0;
+        if (_h >= 0 && _h < 1)
+        {
+            R1 = c;
+            G1 = x;
+            B1 = 0;
+        }
+        else if (_h >= 1 && _h < 2)
+        {
+            R1 = x;
+            G1 = c;
+            B1 = 0;
+        }
+        else if (_h >= 2 && _h < 3)
+        {
+            R1 = 0;
+            G1 = c;
+            B1 = x;
+        }
+        else if (_h >= 3 && _h < 4)
+        {
+            R1 = 0;
+            G1 = x;
+            B1 = c;
+        }
+        else if (_h >= 4 && _h < 5)
+        {
+            R1 = x;
+            G1 = 0;
+            B1 = c;
+        }
+        else if (_h >= 5 && _h < 6)
+        {
+            R1 = c;
+            G1 = 0;
+            B1 = x;
+        }
+        *r = (R1 + m) * 255;
+        *g = (G1 + m) * 255;
+        *b = (B1 + m) * 255;
+    }
+
+
     ~picture() {
         delete[] this->Kvals;
         delete[] this->kTerm;
@@ -869,14 +937,14 @@ struct FracWidgetBuffer : FramebufferWidget {
         
     }
     void step() override {
-        
-        if (Fracking->dirty) {
+        //trying to only refresh the screen every half a second. DOESNT WORK
+        /*if (Fracking->dirty) {
             FramebufferWidget::setDirty(true);
             Fracking->dirty = false;
         }
         else {
             FramebufferWidget::setDirty(false);
-        }
+        }*/
         FramebufferWidget::step();
     }
     
@@ -884,45 +952,94 @@ struct FracWidgetBuffer : FramebufferWidget {
 
 struct FracWidget : Widget {
     BaseFunctions Funct;
-    Brots Brot;
+    brotPicker Brot;
     PoppyModule* Fracking;
     picture* pic;
+    int frames = 0;
+    int pictureColor = -1;
+    bool isWindowOpen = false;
+    int drawboxX = 0;
+    int drawboxY = 0;
+
     FracWidget(PoppyModule* module, Vec topLeft) {
         Fracking = module;
         box.pos = topLeft;
         pic = new(picture);
+        drawboxX = box.size.x;
+        drawboxY = box.size.y;
+        isWindowOpen = true;
     }
-   
-    int pictureColor = -1;
-    int frames = 0;
+    ~FracWidget() {
+        if (pic) delete pic;
+    }
+    
+    void onContextCreate(const ContextCreateEvent& e) override {
+       
+        
 
+        isWindowOpen = true;
+        //onContextCreate(e);
+    }
+
+    void onContextDestroy(const ContextDestroyEvent& e) override
+    {
+        if (pictureColor != -1) {
+            nvgDeleteImage(e.vg, pictureColor);
+            pictureColor = -1;
+        }
+        //if (pic) delete pic;
+        isWindowOpen = false;
+       // onContextDestroy(e);
+    }
     void drawLayer(const DrawArgs& args, int layer) override {
-        if (layer == 1) {
-            int drawboxX = box.size.x;
-            int drawboxY = box.size.y;
+        Brot_Pick chosenBrot;
+        drawboxX = box.size.x;
+        drawboxY = box.size.y;
+        if (layer == 1 && Fracking && isWindowOpen) {
+            
+            nvgSave(args.vg);
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
-            nvgFillColor(args.vg, nvgRGBAf(0.0, 0.0, 0.0, 1.0));
+            /*nvgFillColor(args.vg, nvgRGBAf(0.0, 0.0, 0.0, 1.0));
             nvgBeginPath(args.vg);
             nvgRect(args.vg, 0.0, 0.0, drawboxX, drawboxY);
-            nvgFill(args.vg);
-
+            nvgFill(args.vg);*/
+            
             float xdrawMin = Fracking->XplaceMin;
             float xdrawMax = Fracking->XplaceMax;
             float ydrawMin = Fracking->YplaceMin;
             float ydrawMax = Fracking->YplaceMax;
-            int pixel = 2;
-            int iters = 25;
+            float ZparX = Fracking->Zx;
+            float ZparY = Fracking->Zyi;
+            int fractype = Fracking->fractal;
+            chosenBrot = Brot.chooseFractal(fractype);
+
             if (pictureColor == -1) {
                 pictureColor = nvgCreateImageRGBA(args.vg, drawboxX, drawboxY, 0, pic->Kvals);
             }
-            /*filling screenbuffer with RGBA values*/ //turn it off if mode 2 for processor issues
-            //if (Fracking->quality != 2) {
-                for (int j = pixel; j < drawboxY - pixel; j += pixel) {
-                    for (int l = pixel; l < drawboxX - pixel; l += pixel) {
+            else if (pictureColor != -1) {
+                nvgUpdateImage(args.vg, pictureColor, pic->Kvals);
+            }
+
+            if (Fracking->quality == 0) {
+                pic->Empty();
+            }
+            if(Fracking->quality != 0 && frames % 8 == 0){
+                /*filling screenbuffer with RGBA values*/
+                pic->Empty();
+                int centerX = drawboxX * 0.5;
+                int centerY = drawboxY * 0.5;
+                int iteras = 25;
+                float _red = 0;
+                float _gre = 0;
+                float _blu = 0;
+                float _alp = 10;
+                for (int j = 0; j < drawboxY; j += 1) {
+                    for (int l = 0; l < drawboxX; l += 1) {
 
                         int index = j * drawboxX + l;
-
-                        std::complex<float>Z(Fracking->Zx, Fracking->Zyi);
+                        float distFromCenter = (abs(centerX - l) + abs(centerY - j)) / (float)(centerX + centerY);
+                        distFromCenter = (-distFromCenter) + 1.f; //normalize then invert for central glow
+                        std::complex<float>Z(ZparX, ZparY);
                         float ilerp = Funct.lerp(xdrawMin, xdrawMax, 0, drawboxX, l);
                         float jlerp = Funct.lerp(ydrawMin, ydrawMax, 0, drawboxY, j);
                         std::complex<float>C(ilerp, jlerp);
@@ -934,188 +1051,64 @@ struct FracWidget : Widget {
                             Z = C;
                             C = Zswap;
                         }
-                        
-                        //essentially turn off drawing for performance
-                        if (Fracking->quality == 2) {
-                            pic->Kvals[index * 4 + 0] = 0.f;
-                            pic->Kvals[index * 4 + 1] = 0.f;
-                            pic->Kvals[index * 4 + 2] = 0.f;
-                            pic->Kvals[index * 4 + 3] = 0.f;
-                        }
 
                         int k;
                         std::complex<float>Ztemp(0, 0);
 
-                        for (k = 0; k < iters; ++k) {
+                        for (k = 0; k < iteras; ++k) {
                             Ztemp = Z;
-                            switch (Fracking->fractal) {
-                            case 0: {
-                                Z = Brot.mandelbrot(expo, C, Ztemp);
-                                break;
-                            }
-                            case 1: {
-                                Z = Brot.burningShip(expo, C, Ztemp);
-                                break;
-                            }
-                            case 2: {
-                                Z = Brot.beetle(expo, C, Ztemp);
-                                break;
-                            }
-                            case 3: {
-                                Z = Brot.bird(expo, C, Ztemp);
-                                break;
-                            }
-                            case 4: {
-                                Z = Brot.daisy(expo, C, Ztemp, Z);
-                                break;
-                            }
-                            case 5: {
-                                Z = Brot.unicorn(expo, C, Ztemp);
-                                break;
-                            }
-                            }
+                            Z = chosenBrot(expo, C, Ztemp);
+                            if (abs(Z) > 2.f) break;
 
-                            if (Fracking->quality == 2) {
-
-                                if ( j % 4 ==0 && l % 4 == 0) {
-                                    int Xloc = rack::math::clamp((int)Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, real(Z)), pixel, drawboxX - pixel);
-                                    int Yloc = rack::math::clamp((int)Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, imag(Z)), pixel, drawboxY - pixel);
-                                    int Zpixindex = Yloc * drawboxX + Xloc;
-                                    float redval = abs(real(Z) - imag(Z)) * 9;
-                                    float greenval = k / 10.f;
-                                    float blueval = 4 * (real(Z) * real(C)) + (imag(Z) * imag(C));
-                                    float alphaval = 35;
-                                    for (int r = 0; r < pixel; ++r) {
-                                        for (int c = 0; c < pixel; ++c) {
-                                            int Zpixsur = (Zpixindex + (drawboxX * r) + c);
-                                            pic->Kvals[Zpixsur * 4 + 0] = std::min(pic->Kvals[Zpixsur * 4 + 0] + redval, 245.f);
-                                            pic->Kvals[Zpixsur * 4 + 1] = std::min(pic->Kvals[Zpixsur * 4 + 1] + greenval, 245.f);
-                                            pic->Kvals[Zpixsur * 4 + 2] = std::min(pic->Kvals[Zpixsur * 4 + 2] + blueval, 245.f);
-                                            pic->Kvals[Zpixsur * 4 + 3] = std::min(pic->Kvals[Zpixsur * 4 + 3] + alphaval, 245.f);
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (abs(Z) > 2) {
-                                break;
+                            //just don draw so many dots ok?
+                            if (Fracking->quality == 3 && (k > 6 && j % 4 == 0 && l % 4 == 0)) {                       
+                                int Xloc = rack::math::clamp((int)Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, real(Z)), 1, drawboxX - 1);
+                                int Yloc = rack::math::clamp((int)Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, imag(Z)), 1, drawboxY - 1);
+                                int Zpixindex = Yloc * drawboxX + Xloc;
+                                float redadd = _red;
+                                float greadd = _gre;
+                                float bluadd = _blu;
+                                float alpadd = _alp;
+                                pic->HSLtoRGB255(30 * (k % 10), abs(Z) * 0.5f, 0.5f, &_red, &_gre, &_blu);
+                                redadd = ((int)_red >> 8 == 1) ? 0 : _red + redadd;
+                                greadd += _gre;
+                                bluadd += _blu;
+                                _alp = (_alp > 150) ? 150 : _alp + 10;
+                                pic->MakeColor(Zpixindex, redadd, greadd, bluadd, _alp);
                             }
                         }
 
-                            if (Fracking->quality == 0) {
-                                if (k >= iters - 1) {
-                                    float redval = abs(real(Z) - imag(Z)) * 50;
-                                    float greenval = 0;
-                                    float blueval = 40 - redval / 10;
-                                    float alphaval = 210;
-                                    for (int r = -pixel; r < pixel; ++r) {
-                                        for (int c = -pixel; c < pixel; ++c) {
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 0] = redval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 1] = greenval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 2] = blueval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 3] = alphaval;
-                                        }
-                                    }
-                                }
-                                else {
-                                    float redval =3 * k;
-                                    float greenval = 20 + real(Z) * 8;
-                                    float blueval = 130 - imag(Z) * 5;
-                                    float alphaval = 180;
-                                    for (int r = -pixel; r < pixel; ++r) {
-                                        for (int c = -pixel; c < pixel; ++c) {
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 0] = redval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 1] = greenval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 2] = blueval;
-                                            pic->Kvals[(index + (drawboxX * r) + c) * 4 + 3] = alphaval;
-
-                                        }
-                                    }
-                                }
-                            }
-                            if (Fracking->quality == 1) {
-                                if (k >= iters - 1) {
-                                    
-                                    float redval = 14 * abs(real(Z) - imag(Z));
-                                    float greenval = abs(real(Z) - real(Ztemp)) * 70;
-                                    float blueval = 200 - abs(imag(Z) - imag(Ztemp)) * 55;
-                                    float alphaval = 180;
-                                   
-                                    for (int r = -pixel; r < pixel; ++r) {
-                                        for (int c = -pixel; c < pixel; ++c) {
-                                            int newindex = index + (drawboxX * r) + c;
-                                            pic->Kvals[(newindex) * 4 + 0] = redval;
-                                            pic->Kvals[(newindex) * 4 + 1] = greenval;
-                                            pic->Kvals[(newindex) * 4 + 2] = blueval;
-                                            pic->Kvals[(newindex) * 4 + 3] = alphaval;
-                                            for (int nr = 0; nr < pixel; ++nr) {
-                                                for (int nc = 0; nc < pixel; ++nc) {
-                                                    if (nr != 0 && nc != 0) {
-                                                        pic->Kvals[(newindex) * 4 + 0] += (0.2 / (abs(nr + nc) + 2))
-                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 0];
-                                                        pic->Kvals[(newindex) * 4 + 2] += (0.3 / (abs(nr + nc) + 2))
-                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 2];
-                                                    }
-
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                else {
-                                    double Cbe = (abs(C) / 2.0) - (int)(abs(C) / 2.0);
-                                    double Cab = 1 - Cbe;
-                                    double Zbe = (abs(Z) / 2.0) - (int)(abs(Z) / 2.0);
-                                    double Zab = 1 - Zbe;
-                                    float klog = log(k + 1);
-                                    float redval =(k == 0 ) ? 0.f : (4 * (((Cab * Zab) * klog) / ((Cbe * Zbe) * abs(klog - 1))));
-                                    float greenval = 10 * (Cab * k + Cbe * abs(k - 1));
-                                    float blueval = 20 * ((Zab * k * klog) + (Zbe * abs(k + klog - 1)));
-                                    float alphaval = 210;
-                                    for (int r = -pixel; r < pixel; ++r) {
-                                        for (int c = -pixel; c < pixel; ++c) {
-                                            int newindex = index + (drawboxX * r) + c;
-                                            pic->Kvals[(newindex) * 4 + 0] = redval;
-                                            pic->Kvals[(newindex) * 4 + 1] = greenval;
-                                            pic->Kvals[(newindex) * 4 + 2] = blueval;
-                                            pic->Kvals[(newindex) * 4 + 3] = alphaval;
-                                            for (int nr = 0; nr < pixel; ++nr) {
-                                                for (int nc = 0; nc < pixel; ++nc) {
-                                                    if (nr != 0 && nc != 0) {
-                                                        pic->Kvals[(newindex) * 4 + 0] += (0.2 / (abs(nr + nc) + 1))
-                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 0];
-                                                        pic->Kvals[(newindex) * 4 + 1] += (0.2 / (abs(nr + nc) + 1))
-                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 1];
-                                                        pic->Kvals[(newindex) * 4 + 2] += (0.2 / (abs(nr + nc) + 1))
-                                                            * pic->Kvals[(newindex + (drawboxX * nr) + nc) * 4 + 2];
-                                                    }
-
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }                            
-
                         pic->kTerm[index] = k;
+
+                        
+
+                        if (Fracking->quality == 1) {
+                            pic->HSLtoRGB255(300, 0.1, (float)(k / iteras) * distFromCenter, &_red, &_gre, &_blu);
+                            pic->MakeColor(index, _red, _gre, _blu, 200.f);
+                            
+                        }
+                        else if (Fracking->quality == 2) {
+                            float colorval = ((k <= iteras - 1) ? 280 - pow(2.f, k * 0.75) : abs(Z - Ztemp) * 30.f);
+                            pic->HSLtoRGB255(colorval, 0.8 * distFromCenter, 0.5, &_red, &_gre, &_blu);
+                            pic->MakeColor(index, _red, _gre, _blu, 200.f);
+                            
+                        }
+             
                     }
                 }
-            //}
-            //else {
-            //    pic.Empty();
-            //}
+                frames = 0;
+            }
+            ++frames;
+            
+            nvgBeginPath(args.vg);
+            NVGpaint picPaint = nvgImagePattern(args.vg, 0, 0, drawboxX, drawboxY, 0.0f, pictureColor, 1.0f);
+            nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
+            nvgFillPaint(args.vg, picPaint);
+            nvgFill(args.vg);
+            //pic->Empty();
 
 
-                if (pictureColor != -1){
-                    nvgUpdateImage(args.vg, pictureColor, pic->Kvals);    
-                }
-                NVGpaint picPaint = nvgImagePattern(args.vg, 0, 0, drawboxX, drawboxY, 0.0f, pictureColor, 1.0f);
-                nvgBeginPath(args.vg);
-                nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
-                nvgFillPaint(args.vg, picPaint);
-                nvgFill(args.vg);
-                pic->Empty();
-            /*the lines of the sequence itself, and tracking squares*/
+            /*the lines of the sequence itself, and tracking square*/
             nvgFillColor(args.vg, nvgRGBAf(0.4, 0.86, 1.0, 0.46));
             nvgBeginPath(args.vg);
             float Crectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->Cx);
@@ -1134,7 +1127,7 @@ struct FracWidget : Widget {
                 nvgMoveTo(args.vg, Nrectx, Nrecty);
                 nvgLineTo(args.vg, rectx, recty);
                 nvgStrokeWidth(args.vg, 0.7f);
-                nvgStrokeColor(args.vg, nvgRGBAf(0.9, 0.6, 0.2, 0.47));
+                nvgStrokeColor(args.vg, nvgRGBAf(0.7, 0.4, 0.3, 0.37));
                 nvgStroke(args.vg);
 
             }
@@ -1146,11 +1139,8 @@ struct FracWidget : Widget {
             nvgRect(args.vg, Seqrectx - 3, Seqrecty - 3, 6, 6);
             nvgFill(args.vg);
         }
-        frames++;
-        if (frames % 100 == 0) {
-            //nvgDeleteImage(args.vg, pictureColor);
-            frames = 0;
-        }
+
+        nvgRestore(args.vg);
         Widget::drawLayer(args, layer);
     }
 };
@@ -1231,7 +1221,7 @@ struct PoppyWidget : ModuleWidget {
         if (module) {
             FracWidgetBuffer* FracBuffer = new FracWidgetBuffer(module);
             addChild(FracBuffer);
-            FracWidget* myWidget = new FracWidget(module, Vec(69.5, 29.5));
+            FracWidget* myWidget = new FracWidget(module, Vec(70, 30));
             myWidget->setSize(Vec(160, 120));
             
             FracBuffer->addChild(myWidget);                      

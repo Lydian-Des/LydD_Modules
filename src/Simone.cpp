@@ -46,6 +46,14 @@ struct PathEquate {
 
 struct SimoneModule : Module
 {
+    BaseFunctions Functions;
+    BaseButtons Buttons;
+    PathEquate Paths;
+    Follow* follow;
+    rack::dsp::TRCFilter<rack::simd::float_4> dcRemoveX;
+    rack::dsp::TRCFilter<rack::simd::float_4> dcRemoveY;
+
+
     enum ParamIds {
         SPEED_PARAM,
         FM_PARAM,
@@ -158,15 +166,16 @@ struct SimoneModule : Module
         configOutput(Y_4_OUTPUT, "Y - 4");
         configOutput(MIX_X_OUTPUT, "Mix - X");
         configOutput(MIX_Y_OUTPUT, "Mix - Y");
+
+        follow = new(Follow);
     }
 
-
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-    PathEquate Paths;
-    Follow* follow = new(Follow);
-    rack::dsp::TRCFilter<rack::simd::float_4> dcRemoveX;
-    rack::dsp::TRCFilter<rack::simd::float_4> dcRemoveY;
+    ~SimoneModule() {
+        if (follow) {
+            delete follow;
+        }
+    }
+   
 
 
     int loopCounter = 0;
@@ -187,6 +196,7 @@ struct SimoneModule : Module
     float rad = 0.5;
     float radatten = 0.f;
     float Tradius = 0.5;
+    float drive = 0;
     bool isinA = false;
     bool isinB = false;
     bool isinWAVE = false;
@@ -357,14 +367,23 @@ struct SimoneModule : Module
         
     }
 
+    rack::simd::float_4 reflect(float lowlim, float uplim, rack::simd::float_4 Val) {
+        rack::simd::float_4 isup = Val > uplim;
+        rack::simd::float_4 islow = Val < lowlim;
+        rack::simd::float_4 upflecamt = fmax(Val, rack::simd::float_4{ uplim }) - uplim;
+        rack::simd::float_4 lowflecamt = fmin(Val, rack::simd::float_4{ lowlim }) - lowlim;
+        rack::simd::float_4 output = rack::simd::ifelse(isup, uplim - upflecamt, rack::simd::ifelse(islow, lowlim - lowflecamt, Val));
+        return output;
+    }
+
     void generateOutput(const ProcessArgs& args) {
 
         rack::simd::float_4 FM = timePitch * (((isinFM) ? inputs[FM_INPUT].getVoltage(0) * params[FM_PARAM].value : params[FM_PARAM].value) + 1);
-        float inPM = inputs[PM_INPUT].getVoltage(0) * (((isinPM) ? params[PM_PARAM].value : 1.f));
-        rack::simd::float_4 PM = timePitch * inPM * args.sampleTime;
+        //float inPM = inputs[PM_INPUT].getVoltage(0) * (((isinPM) ? params[PM_PARAM].value : 1.f));
+        //rack::simd::float_4 PM = timePitch * inPM * args.sampleTime;
 
         Functions.incrementPhase(FM, args.sampleRate, &DT, 12.f * _2PI);
-        DT += PM;
+        //DT += PM;
 
             float ain = (isinA) ? Functions.lerp(-PI, PI, -5, 5, inputs[A_INPUT].getVoltage(0)) : 0.0;
             float bin = (isinB) ? Functions.lerp(-PI, PI, -5, 5, inputs[B_INPUT].getVoltage(0)) : 0.0;
@@ -430,6 +449,10 @@ struct SimoneModule : Module
                 }
             }
 
+            
+            float inPM = params[PM_PARAM].value * (((isinPM) ? inputs[PM_INPUT].getVoltage(0) : 1.f));
+            drive = inPM * 10.f;
+
             rack::simd::float_4 Xoutend = Xouts;
             rack::simd::float_4 Youtend = Youts;
             if (rangetype == 2) {
@@ -439,6 +462,17 @@ struct SimoneModule : Module
                 Youtend = dcRemoveY.highpass();
 
             }
+
+            //this drive is from VCV fundamental VCF
+            Xoutend *= pow((drive / 4.f), 3) + 1.f;
+            Xoutend = rack::simd::clamp(Xoutend, -(2.f), 2.f);
+            Xoutend *= (34.f + Xoutend * Xoutend) / (34.f + 5.f * Xoutend * Xoutend);
+            Youtend *= pow((drive / 4.f), 3) + 1.f;
+            Youtend = rack::simd::clamp(Youtend, -(2.f), 2.f);
+            Youtend *= (34.f + Youtend * Youtend) / (34.f + 5.f * Youtend * Youtend);
+
+            
+
 
             outputs[X_1_OUTPUT].setVoltage(Xoutend[0] * 5.f, 0);
             outputs[Y_1_OUTPUT].setVoltage(Youtend[0] * 5.f, 0);
@@ -549,7 +583,8 @@ struct SimoneWidget : Widget {
             }
             rack::simd::float_4 xds(0.f);
             rack::simd::float_4 yds(0.f);
-            
+            float driveless = Simon->drive * 0.02;
+            float drivemore = Simon->drive * 0.06;
             nvgBeginPath(args.vg);
             nvgFillColor(args.vg, nvgRGBAf(0.62, 0.52, 0.75, 0.12));
             nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
@@ -593,10 +628,10 @@ struct SimoneWidget : Widget {
                             for (int l = 0; l < 4; ++l) {
                                 nvgBeginPath(args.vg);
 
-                                nvgStrokeColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a),
-                                    Functions.lerp(0, 1, -PI, PI, b),
-                                    Functions.lerp(0, 1, -_2PI, _2PI, a + xds[l] + yds[l]),
-                                    0.36));
+                                nvgStrokeColor(args.vg, nvgRGBAf(Functions.lerp(0, 1, -PI, PI, a + driveless),
+                                    Functions.lerp(0, 1, -PI, PI, b + driveless),
+                                    Functions.lerp(0, 1, -_2PI, _2PI, a + xds[l] + yds[l] + driveless),
+                                    0.36 + (driveless / 2)));
                                 nvgStrokeWidth(args.vg, 1.52);
                                 nvgLineCap(args.vg, NVG_ROUND);
                                 nvgMoveTo(args.vg, Functions.lerp(0, drawboxX, -1, 1, currentframeX[i][j][k][l]),
@@ -623,28 +658,29 @@ struct SimoneWidget : Widget {
             std::vector<rack::simd::float_4> TrailsX;
             std::vector<rack::simd::float_4> TrailsY;
             Simon->follow->PeekPoints(&TrailsX, &TrailsY);
+
             for (int t = 0; t < (int)TrailsX.size(); ++t) {
 
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, nvgRGBAf(1.0, 1.0, 0.0, 0.36));
+                nvgFillColor(args.vg, nvgRGBAf(0.8 + driveless, 1.0 - drivemore, 0.04, 0.56));
                 nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, TrailsX[t][0]),
                     Functions.lerp(0, drawboxY, -1, 1, -TrailsY[t][0]), 2, 2);
                 nvgFill(args.vg);
 
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, nvgRGBAf(1.0, 0.0, 1.0, 0.36));
+                nvgFillColor(args.vg, nvgRGBAf(0.8 + driveless, 0.04 - driveless, 1.0, 0.56));
                 nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, TrailsX[t][1]),
                     Functions.lerp(0, drawboxY, -1, 1, -TrailsY[t][1]), 2, 2);
                 nvgFill(args.vg);
 
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, nvgRGBAf(0.01, 0.2, 1.0, 0.36));
+                nvgFillColor(args.vg, nvgRGBAf(0.04 + drivemore, 0.8 - drivemore, 1.0, 0.56));
                 nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, TrailsX[t][2]),
                     Functions.lerp(0, drawboxY, -1, 1, -TrailsY[t][2]), 2, 2);
                 nvgFill(args.vg);
 
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, nvgRGBAf(0.0, 1.0, 0.0, 0.36));
+                nvgFillColor(args.vg, nvgRGBAf(0.04 + drivemore, 1.0 -drivemore, 0.04, 0.56));
                 nvgRect(args.vg, Functions.lerp(0, drawboxX, -1, 1, TrailsX[t][3]),
                     Functions.lerp(0, drawboxY, -1, 1, -TrailsY[t][3]), 2, 2);
                 nvgFill(args.vg);

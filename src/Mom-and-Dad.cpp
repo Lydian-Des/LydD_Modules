@@ -67,6 +67,12 @@ struct MomDadEq {
 
 struct DadrasModule : Module
 {
+    BaseFunctions Functions;
+    BaseButtons Buttons;
+    MomDadEq Paths;
+    Lines* lines;
+
+
     enum ParamIds {
         SPEED_PARAM,
         SPREAD_PARAM,
@@ -163,12 +169,14 @@ struct DadrasModule : Module
         configOutput(R_Z_OUTPUT, "Dad-Z");
         configOutput(R_W_OUTPUT, "Dad-W");
 
+        lines = new(Lines);
     }
   
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-    MomDadEq Paths;
-    Lines* lines = new(Lines);
+    ~DadrasModule() {
+        if (lines) {
+            delete lines;
+        }
+    }
 
     int loopCounter = 0;
     bool dirty = false;

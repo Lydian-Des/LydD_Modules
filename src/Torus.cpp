@@ -128,6 +128,13 @@ struct PathEquate {
 
 struct TorusModule : Module
 {
+    Follow* follow;
+    BaseFunctions Functions;
+    BaseButtons Buttons;
+    BaseMatrices Matrix;
+    PathEquate Paths;
+
+
     enum ParamIds {
         BIG_PITCH_PARAM,
         LITTLE_PITCH_PARAM,
@@ -196,14 +203,16 @@ struct TorusModule : Module
         configOutput(X_OUTPUT, "X-Axis");
         configOutput(Y_OUTPUT, "Y-Axis");
         configOutput(Z_OUTPUT, "Z-Axis");
-
+        
+        follow = new(Follow);
     }
-
-    Follow* follow = new(Follow);
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-    BaseMatrices Matrix;
-    PathEquate Paths;
+    
+    ~TorusModule() {
+        if (follow) {
+            delete follow;
+        }
+    }
+    
     int currentPolyphony = 1;
     int loopCounter = 0;
   
@@ -263,7 +272,7 @@ struct TorusModule : Module
             dirty = true;
         }
         generateOutput(args);
-        if (loopCounter % 6 == 0) {
+        if (loopCounter % 8 == 0) {
             follow->buildPoints(pathToDraw[0]);
         }
         if (loopCounter % 64 == 0) {
@@ -473,10 +482,6 @@ struct TorusModule : Module
         }
     }
 
-    void onRemove(const RemoveEvent& e) override {
-        delete follow;
-    }
-
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
@@ -549,7 +554,7 @@ struct TorusDrawWidget : Widget {
         RotMatrixX = Matrix.RotationYZ(angle);
         ProjectMatrix = Matrix.Projection(1.f / 1.2f);
 
-        if (layer == 1) {
+        if (layer == 1 && Tora) {
             int drawboxX = box.size.x;
             int drawboxY = box.size.y;
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
@@ -571,7 +576,8 @@ struct TorusDrawWidget : Widget {
             rack::simd::float_4 color{ Tora->tWind, Tora->nWind, Tora->drive, 1.f };
 
             std::vector<rack::simd::float_4> Line;
-            Tora->follow->PeekPoints(&Line);
+
+            if(Tora->follow)Tora->follow->PeekPoints(&Line);
                 
             frames++;
             frames %= 64;
