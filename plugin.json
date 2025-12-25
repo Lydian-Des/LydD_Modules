@@ -3,7 +3,7 @@
 	"name": "LydD Modules",
 	"author": "Lydian",
 	"license": "GPL-3.0-or-later",
-	"version": "2.0.18",
+	"version": "2.0.20",
 	"modules": [
 		{
 			"slug": "Poppy-fields",
@@ -28,6 +28,36 @@
 			"name": "Torus",
 			"description": "Toroidal Oscillator",
 			"tags": [ "VCO" ]
+		},
+		{
+			"slug": "Clock-Long",
+			"name": "Concierge",
+			"description": "Clock Generator",
+			"tags": [ "Utility" ]
+		},
+		{
+			"slug": "Dobbs-Env",
+			"name": "Dobbs",
+			"description": "Envelope Generator",
+			"tags": [ "Envelope" ]
+		},
+		{
+			"slug": "Ledger-Logic",
+			"name": "Ledger",
+			"description": "Cascading Logic",
+			"tags": [ "Logic" ]
+		},
+		{
+			"slug": "The-Onceler",
+			"name": "Onceler",
+			"description": "Gate",
+			"tags": [ "Gate" ]
+		},
+		{
+			"slug": "Shear-Comb",
+			"name": "Shear",
+			"description": "IIR Comb Filter",
+			"tags": [ "Filter" ]
 		}
 
 	]

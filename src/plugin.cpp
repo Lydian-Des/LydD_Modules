@@ -11,5 +11,9 @@ void init(rack::Plugin* p) {
 	p->addModel(modelDadMom);
 	p->addModel(modelSimone);
 	p->addModel(modelTorus);
-	
+	p->addModel(modelClock);
+	p->addModel(modelDobbs);
+	p->addModel(modelLedger);
+	p->addModel(modelOnceler);
+	p->addModel(modelShear);
 }

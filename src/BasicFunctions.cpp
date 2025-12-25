@@ -7,10 +7,10 @@ float _2PI = 2.0 * 3.1415926535897932;
 
     void BaseButtons::incrementButton(float press, bool* set, int limit, int* value) {
         int val = *value;
-        if (press == 0.0f) {
+        if (press <= 0.0f) {
             *set = true;
         }
-        if (press == 1.0f && *set) {
+        if (press >= 1.0f && *set) {
             val++;
             *set = false;
         }
@@ -33,10 +33,10 @@ float _2PI = 2.0 * 3.1415926535897932;
     }
 
     void BaseButtons::latchButton(float press, bool* set, bool* reset) {
-        if (press == 0.0f) {
+        if (press <= 0.0f) {
             *reset = true;
         }
-        if (press == 1.0f && *reset) {
+        if (press >= 1.0f && *reset) {
             *set = !*set;
             *reset = false;
         }
@@ -88,8 +88,8 @@ float _2PI = 2.0 * 3.1415926535897932;
     void BaseFunctions::incrementPhase(float pitch, float sampleRate, float* phase) {
         float incremPhase = _2PI * pitch / sampleRate;
         *phase += incremPhase;
-        if (*phase >= 2.f * _2PI) {
-            *phase -= 2.f * _2PI;
+        if (*phase >= _2PI) {
+            *phase -= _2PI;
         }
     }
     void BaseFunctions::incrementPhase(rack::simd::float_4 pitch, float sampleRate, rack::simd::float_4* phase, float limit) {
@@ -205,8 +205,6 @@ float _2PI = 2.0 * 3.1415926535897932;
             ZrotateXW,
             WrotateXW };
     }
-
-
 
 
 
