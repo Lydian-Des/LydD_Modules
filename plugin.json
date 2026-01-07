@@ -6,65 +6,65 @@
 	"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/README.md",
 	"sourceUrl": "https://github.com/Lydian-Des/LydD_Modules",
 	"version": "2.0.20",
-	"modules": "https://github.com/Lydian-Des/LydD_Modules/tree/main",
-	{
-		"slug": "Poppy-fields",
-		"name": "Poppy-Fields",
-		"description": "Infinite Sequencer",
-		"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Poppy_Fields.md",
-		"tags": [ "Sequencer" ]
-	},
-	{
-		"slug": "Dadras-Momeni-Chaos",
-		"name": "Mom-and-Dad",
-		"description": "Chaotic Attractors",
-		"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Mom_and_Dad.md",
-		"tags": [ "LFO" ]
-	},
-	{
-		"slug": "Simone-Chaos",
-		"name": "Simone",
-		"description": "Chaotic Attractors",
-		"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Simone.md",
-		"tags": [ "LFO" ]
-	},
-	{
-		"slug": "Torus-Osc",
-		"name": "Torus",
-		"description": "Toroidal Oscillator",
-		"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Torus.md",
-		"tags": [ "VCO" ]
-	},
-	{
-		"slug": "Clock-Long",
-		"name": "Concierge",
-		"description": "Clock Generator",
-		"tags": [ "Utility" ]
-	},
-	{
-		"slug": "Dobbs-Env",
-		"name": "Dobbs",
-		"description": "Envelope Generator",
-		"tags": [ "Envelope" ]
-	},
-	{
-		"slug": "Ledger-Logic",
-		"name": "Ledger",
-		"description": "Cascading Logic",
-		"tags": [ "Logic" ]
-	},
-	{
-		"slug": "The-Onceler",
-		"name": "Onceler",
-		"description": "Gate",
-		"tags": [ "Gate" ]
-	},
-	{
-		"slug": "Shear-Comb",
-		"name": "Shear",
-		"description": "IIR Comb Filter",
-		"tags": [ "Filter" ]
-	},
+	"modules": [
+		{
+			"slug": "Poppy-fields",
+			"name": "Poppy-Fields",
+			"description": "Infinite Sequencer",
+			"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Poppy_Fields.md",
+			"tags": [ "Sequencer" ]
+		},
+		{
+			"slug": "Dadras-Momeni-Chaos",
+			"name": "Mom-and-Dad",
+			"description": "Chaotic Attractors",
+			"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Mom_and_Dad.md",
+			"tags": [ "LFO" ]
+		},
+		{
+			"slug": "Simone-Chaos",
+			"name": "Simone",
+			"description": "Chaotic Attractors",
+			"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Simone.md",
+			"tags": [ "LFO" ]
+		},
+		{
+			"slug": "Torus-Osc",
+			"name": "Torus",
+			"description": "Toroidal Oscillator",
+			"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Torus.md",
+			"tags": [ "VCO" ]
+		},
+		{
+			"slug": "Clock-Long",
+			"name": "Concierge",
+			"description": "Clock Generator",
+			"tags": [ "Utility" ]
+		},
+		{
+			"slug": "Dobbs-Env",
+			"name": "Dobbs",
+			"description": "Envelope Generator",
+			"tags": [ "Envelope" ]
+		},
+		{
+			"slug": "Ledger-Logic",
+			"name": "Ledger",
+			"description": "Cascading Logic",
+			"tags": [ "Logic" ]
+		},
+		{
+			"slug": "The-Onceler",
+			"name": "Onceler",
+			"description": "Gate",
+			"tags": [ "Gate" ]
+		},
+		{
+			"slug": "Shear-Comb",
+			"name": "Shear",
+			"description": "IIR Comb Filter",
+			"tags": [ "Filter" ]
+		}
 
 	]
 }
