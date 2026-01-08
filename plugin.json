@@ -45,19 +45,19 @@
 			"slug": "Dobbs-Env",
 			"name": "Dobbs",
 			"description": "Envelope Generator",
-			"tags": [ "Envelope generator" ]
+			"tags": [ "Utility", "Envelope generator" ]
 		},
 		{
 			"slug": "Ledger-Logic",
 			"name": "Ledger",
 			"description": "Cascading Logic",
-			"tags": [ "Logic" ]
+			"tags": [ "Utility", "Logic" ]
 		},
 		{
 			"slug": "The-Onceler",
 			"name": "Onceler",
 			"description": "Wait for Gates",
-			"tags": [ "Clock modulator", "Switch" ]
+			"tags": [ "Utility", "Clock modulator", "Switch" ]
 		},
 		{
 			"slug": "Shear-Comb",
