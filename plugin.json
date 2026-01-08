@@ -26,7 +26,7 @@
 			"name": "Simone",
 			"description": "Chaotic Attractors",
 			"manualUrl": "https://github.com/Lydian-Des/LydD_Modules/blob/main/Manual-Simone.md",
-			"tags": [ "LFO" ]
+			"tags": [ "LFO", "VCO" ]
 		},
 		{
 			"slug": "Torus-Osc",
@@ -39,13 +39,13 @@
 			"slug": "Clock-Long",
 			"name": "Concierge",
 			"description": "Clock Generator",
-			"tags": [ "Utility" ]
+			"tags": [ "Utility", "Clock" ]
 		},
 		{
 			"slug": "Dobbs-Env",
 			"name": "Dobbs",
 			"description": "Envelope Generator",
-			"tags": [ "Envelope" ]
+			"tags": [ "Envelope generator" ]
 		},
 		{
 			"slug": "Ledger-Logic",
@@ -56,14 +56,14 @@
 		{
 			"slug": "The-Onceler",
 			"name": "Onceler",
-			"description": "Gate",
-			"tags": [ "Gate" ]
+			"description": "Wait for Gates",
+			"tags": [ "Clock modulator", "Switch" ]
 		},
 		{
 			"slug": "Shear-Comb",
 			"name": "Shear",
 			"description": "IIR Comb Filter",
-			"tags": [ "Filter" ]
+			"tags": [ "Filter", "Effect" ]
 		}
 
 	]
