@@ -277,15 +277,21 @@ struct TorusModule : Module
             dirty = true;
         }
         generateOutput(args);
-        if (loopCounter % 8 == 0) {
-            follow->buildPoints(pathToDraw[0]);
-        }
+        phaseDraw(args);
+        
         if (loopCounter % 64 == 0) {
             Lights(args);
         }
         loopCounter++;
         if (loopCounter % 2520 == 0) {
             loopCounter = 0;
+        }
+    }
+
+    void phaseDraw(const ProcessArgs& args) {
+        int phasexpand = (tPhases[0] + nPhases[0]) * 200;
+        if (phasexpand % 2 == 0) {
+            follow->buildPoints(pathToDraw[0]);
         }
     }
 
@@ -457,9 +463,6 @@ struct TorusModule : Module
             Yout += distortOuts[1][i];
             Zout += distortOuts[2][i];
         }
-        /*for (int i = 0; i < 3; ++i) {
-            
-        }*/
         
         rack::simd::float_4 path{ Coord[0][0], Coord[1][0], Coord[2][0], 0.f};
         pathToDraw = std::vector<rack::simd::float_4>{ path, Zero, Zero, Zero};

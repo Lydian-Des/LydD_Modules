@@ -2,6 +2,8 @@
 #include <vector>
 #include <string>
 
+#define MODULE_NAME DobbsModule
+#define PANEL "Dobbs_panel.svg"
 
 static const int maxPolyphony = 1;
 
@@ -159,6 +161,8 @@ struct DobbsModule : Module
     Envelope ENVmain[2];
     Envelope ENVcomp[2];
 
+    #include "Theme/PanelVars.h"
+
     DobbsModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         for (int i = 0; i < 2; ++i) {
@@ -308,6 +312,9 @@ struct DobbsModule : Module
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
+        json_t* panelJ = json_integer(currPanel);
+        json_object_set_new(rootJ, "Panel", panelJ);
+
         json_t* ASR1J = json_boolean(ASRset[0]);
         json_t* ASR2J = json_boolean(ASRset[1]);
         json_t* SPDMAIN1J = json_boolean(spdFsetM[0]);
@@ -327,6 +334,9 @@ struct DobbsModule : Module
 
     void dataFromJson(json_t* rootJ) override {
        
+        json_t* panelJ = json_object_get(rootJ, "Panel");
+        if (panelJ) currPanel = json_integer_value(panelJ);
+
         json_t* ASR1J = json_object_get(rootJ, "ASR1");
         json_t* ASR2J = json_object_get(rootJ, "ASR2");
         json_t* SPDMAIN1J = json_object_get(rootJ, "SPEEDMAIN1");
@@ -361,7 +371,7 @@ struct EnvLEDMain : SvgWidget {
             for (auto s = svg->handle->shapes; s; s = s->next) {
                 nvgStrokeWidth(args.vg, (s->strokeWidth));
                 float enVal = (module->EnvelopeMain[side] );
-                nvgFillColor(args.vg, nvgHSL(0.3f + (enVal / 5.f), 0.8, enVal * 0.6f));
+                nvgFillColor(args.vg, nvgHSL((0.3f + (module->currPanel / 5.f)) + (enVal / 5.f), 0.8, enVal * 0.6f));
                 for (auto p = s->paths; p; p = p->next) {
                     nvgBeginPath(args.vg);
                     nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
@@ -422,9 +432,15 @@ struct EnvLEDComp : SvgWidget {
 
 
 struct DobbsPanelWidget : ModuleWidget {
+
+    #include "Theme/LogoLight.h"
+    std::string panel;
+
     DobbsPanelWidget(DobbsModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Dobbs_panel.svg")));
+        panel = PANEL;
+        //set panel on init
+        #include "Theme/initChoosePanel.h"
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
@@ -515,6 +531,24 @@ struct DobbsPanelWidget : ModuleWidget {
         }
     }
     
+    //give struct to menu containing panel options
+    #include "Theme/PanelList.h" 
+
+    void appendContextMenu(Menu* menu) override {
+        DobbsModule* module = dynamic_cast<DobbsModule*>(this->module);
+        assert(module);
+
+        #include "Theme/CreatePanelMenu.h"
+    }
+
+    void step() override {
+        if (module) {
+            //change panel 
+            #include "Theme/UpdatePanel.h"
+        }
+        Widget::step();
+    }
+
 };
 
 Model* modelDobbs = createModel<DobbsModule, DobbsPanelWidget>("Dobbs-Env");

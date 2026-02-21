@@ -89,6 +89,7 @@ struct DadrasModule : Module
         B_PARAM,
         G_PARAM,
         O_PARAM,
+        EDIT_BUTTON_PARAM,
         NUM_PARAMS
 	};
 	enum InputIds {
@@ -146,6 +147,7 @@ struct DadrasModule : Module
         configParam(RESET_BUTTON_PARAM, 0.f, 1.f, 0.f, "Reset");
         configParam(AXIS_SWITCH_PARAM, 0.f, 2.f, 0.f, "Axis");
         configParam(WTYPE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Wander");
+        configParam(EDIT_BUTTON_PARAM, 0.f, 1.f, 0.f, "EDIT - conditions");
 
         configInput(SPEED_INPUT, "Speed");
         configInput(SPREAD_INPUT, "Separation");
@@ -203,6 +205,10 @@ struct DadrasModule : Module
     float startY = 1;
     float startZ = -6;
     float startW = -1;
+
+    bool editMode = false;
+    bool editreset = false;
+
 
     rack::simd::float_4 Start{startX, startY, startZ, startW};
     rack::simd::float_4 CoordC = Start;
@@ -320,8 +326,14 @@ struct DadrasModule : Module
         dadsInf = rack::math::clamp(params[INFLUENCE_DAD_PARAM].value + indad, 0.f, 1.f);
         momsInf = rack::math::clamp(params[INFLUENCE_MOM_PARAM].value + inmom, 0.f, 1.f);
         
+        Buttons.latchButton(params[EDIT_BUTTON_PARAM].value, &editMode, &editreset);
     }
-
+    void resetspace() {
+        CoordC = Start;
+        CoordL = Start;
+        CoordR = Start;
+        lines->empty();
+    }
     void generateOutput(const ProcessArgs& args) {   
         float dtL = dt + (phaseShift * 100);
         float dtR = dt - (phaseShift * 100);
@@ -332,10 +344,7 @@ struct DadrasModule : Module
             lines->empty();
         }
         if (reSet) {
-            CoordC = Start;
-            CoordL = Start;
-            CoordR = Start;
-            lines->empty();
+            resetspace();
         }
 
         for (int p = 0; p < 4; ++p) {
@@ -349,55 +358,55 @@ struct DadrasModule : Module
                 CoordR = Start;
             }
         }
+        if (!editMode) {
+            rack::simd::float_4 CoordprevC = CoordC;
+            rack::simd::float_4 CoordprevL = CoordL + Spread;
+            rack::simd::float_4 CoordprevR = CoordR - Spread;
 
-        rack::simd::float_4 CoordprevC = CoordC;
-        rack::simd::float_4 CoordprevL = CoordL + Spread;
-        rack::simd::float_4 CoordprevR = CoordR - Spread;
+            if (Phase[0] <= PI) {
+                click1 = true;
+            }
+            if (Phase[1] <= PI) {
+                click2 = true;
+            }
+            if (Phase[2] <= PI) {
+                click3 = true;
+            }
+            if (Phase[0] > PI && click1) {
+                lines->build(CoordC, CoordL, CoordR);
+                //pull toward mom or dad w/ influence
+                CoordprevC += Functions.incrementToward(CoordprevC, CoordL, 100) * momsInf;
+                CoordprevC += Functions.incrementToward(CoordprevC, CoordR, 100) * dadsInf;
+                CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
 
-        if (Phase[0] <= PI) {
-            click1 = true;
-        }
-        if (Phase[1] <= PI) {
-            click2 = true;
-        }
-        if (Phase[2] <= PI) {
-            click3 = true;
-        }
-        if (Phase[0] > PI && click1) {
-            lines->build(CoordC, CoordL, CoordR);
-            //pull toward mom or dad w/ influence
-            CoordprevC += Functions.incrementToward(CoordprevC, CoordL, 100) * momsInf;
-            CoordprevC += Functions.incrementToward(CoordprevC, CoordR, 100) * dadsInf;
-            CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
-            
-            click1 = false;
-        }
-        if (Phase[1] > PI && click2) {
+                click1 = false;
+            }
+            if (Phase[1] > PI && click2) {
 
-            CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
+                CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
 
-            click2 = false;
-        }
-        if (Phase[2] > PI && click3) {
+                click2 = false;
+            }
+            if (Phase[2] > PI && click3) {
 
-            CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
+                CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
 
 
-            click3 = false;
-        }
-        float outputC[4] = { 0 };
-        float outputL[4] = { 0 };
-        float outputR[4] = { 0 };
-        for (int i = 0; i < 4; ++i) {
-            outputC[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
-            outputC[i] = rack::math::clamp(outputC[i], -8.f, 8.f);
-            outputL[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
-            outputL[i] = rack::math::clamp(outputL[i], -8.f, 8.f);
-            outputR[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
-            outputR[i] = rack::math::clamp(outputR[i], -8.f, 8.f);
-        }
-        
-          
+                click3 = false;
+            }
+            float outputC[4] = { 0 };
+            float outputL[4] = { 0 };
+            float outputR[4] = { 0 };
+            for (int i = 0; i < 4; ++i) {
+                outputC[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
+                outputC[i] = rack::math::clamp(outputC[i], -8.f, 8.f);
+                outputL[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
+                outputL[i] = rack::math::clamp(outputL[i], -8.f, 8.f);
+                outputR[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
+                outputR[i] = rack::math::clamp(outputR[i], -8.f, 8.f);
+            }
+
+
             outputs[C_X_OUTPUT].setVoltage(outputC[0], 0);
             outputs[C_Y_OUTPUT].setVoltage(outputC[1], 0);
             outputs[C_Z_OUTPUT].setVoltage(outputC[2], 0);
@@ -410,13 +419,31 @@ struct DadrasModule : Module
             outputs[R_Y_OUTPUT].setVoltage(outputR[1], 0);
             outputs[R_Z_OUTPUT].setVoltage(outputR[2], 0);
             outputs[R_W_OUTPUT].setVoltage(outputR[3], 0);
-
+        }
+        else {
+            Start[0] = 11 + params[A_PARAM].value;
+            Start[1] = 1 + params[B_PARAM].value;
+            Start[2] = -10 + params[G_PARAM].value;
+            Start[3] = -1 + params[O_PARAM].value; 
+            if (loopCounter % 16 == 0) {
+                lines->build(Start  *50, Start * 50, Start * 50);
+            }
+            resetspace();
+        }
     }
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_t* panelJ = json_integer(currPanel);
         json_object_set_new(rootJ, "Panel", panelJ);
+        json_t* Start1J = json_real(Start[0]);
+        json_t* Start2J = json_real(Start[1]);
+        json_t* Start3J = json_real(Start[2]);
+        json_t* Start4J = json_real(Start[3]);
+        json_object_set_new(rootJ, "start1", Start1J);
+        json_object_set_new(rootJ, "start2", Start2J);
+        json_object_set_new(rootJ, "start3", Start3J);
+        json_object_set_new(rootJ, "start4", Start4J);
 
         return rootJ;
     }
@@ -424,6 +451,14 @@ struct DadrasModule : Module
     void dataFromJson(json_t* rootJ) override {
         json_t* panelJ = json_object_get(rootJ, "Panel");
         if (panelJ) currPanel = json_integer_value(panelJ);
+        json_t* start1J = json_object_get(rootJ, "start1");
+        json_t* start2J = json_object_get(rootJ, "start2");
+        json_t* start3J = json_object_get(rootJ, "start3");
+        json_t* start4J = json_object_get(rootJ, "start4");
+        if (start1J && start2J && start3J && start4J) {
+            Start = rack::simd::float_4(json_real_value(start1J), json_real_value(start2J),
+                json_real_value(start3J), json_real_value(start4J));
+        }
 
     }
 
@@ -730,7 +765,7 @@ struct DadWidget : Widget{
 };
 
 struct DadrasWidget : ModuleWidget {
-
+        #include "Theme/LogoLight.h"
     //name for panel file, same name for every type
     std::string panel;
 
@@ -764,6 +799,7 @@ struct DadrasWidget : ModuleWidget {
         addParam(createParam<VCVButton>(Vec(11, 60.5), module, DadrasModule::RESET_BUTTON_PARAM));
         addParam(createParam<PurpleSwitch>(Vec(208, 32), module, DadrasModule::AXIS_SWITCH_PARAM));
         addParam(createParam<VCVButton>(Vec(210, 84), module, DadrasModule::WTYPE_BUTTON_PARAM));
+        addParam(createParam<VCVButton>(Vec(165, 162), module, DadrasModule::EDIT_BUTTON_PARAM));
 
         addInput(createInput<PurplePort>(Vec(130, 160), module, DadrasModule::SPEED_INPUT));
         addInput(createInput<PurplePort>(Vec(166, 242), module, DadrasModule::SPREAD_INPUT));
@@ -797,6 +833,10 @@ struct DadrasWidget : ModuleWidget {
             myWidget->setSize(Vec(160, 120));
             DadBuffer->addChild(myWidget);
             addChild(DadBuffer);
+            Vec logoPos = Vec(((15.f * 16.f) / 2.f) - 22.5, 363.f);
+            DadrasModule* module = dynamic_cast<DadrasModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h"           
         }
 
     }

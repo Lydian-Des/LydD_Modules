@@ -2,6 +2,8 @@
 #include <vector>
 #include <string>
 
+#define MODULE_NAME OncelerModule
+#define PANEL "Onceler_panel.svg"
 
 static const int maxPolyphony = 1;
 
@@ -62,7 +64,6 @@ struct Oneder {
     void cutDown(bool* isFell, int type, float sampleTime) {
         _trig.process(sampleTime);
         bool Felled = false;
-        bool tFell = true;
         switch (type) {       
         case 0: { //Hold for N
             Felled = (this->Cuts >= this->toFell) && (this->Cuts <= this->toFell + this->toWait);
@@ -79,15 +80,12 @@ struct Oneder {
             Felled = this->Cuts >= this->toFell;
             break;
         }
-
         case 3: { // Trig 
             bool equal = this->Cuts == this->toFell;
             bool tap = _Tap.process(equal);
             if (tap) {
-                this->_trig.trigger(0.08);
-                tFell = false;
+                this->_trig.trigger(0.008f);
             }
-            tFell = this->Cuts < this->toFell;
             Felled = this->_trig.isHigh();
             break;
         }
@@ -97,9 +95,7 @@ struct Oneder {
             bool tap = _Tap.process(equal);
             if (tap) {
                 this->_trig.trigger(0.08);
-                tFell = false;
             }
-            tFell = this->Cuts < this->toFell;
             Felled = this->_trig.isHigh();
             break;
         }
@@ -109,8 +105,7 @@ struct Oneder {
         }
         case 6: { //Auto Not Not
             this->Cuts %= this->toFell + this->toWait;
-            Felled = (this->Cuts < this->toFell) || (this->Cuts > this->toFell + this->toWait);
-
+            Felled = (this->Cuts < this->toFell);
             break;
         }
         }
@@ -154,6 +149,8 @@ struct OncelerModule : Module
     BaseFunctions Functions;
     BaseButtons Buttons;
     Oneder Trees[4];
+
+    #include "Theme/PanelVars.h"
 
     OncelerModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -395,7 +392,8 @@ struct OncelerModule : Module
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
+        json_t* panelJ = json_integer(currPanel);
+        json_object_set_new(rootJ, "Panel", panelJ);
         json_t* Hold1J = json_integer(holdType[0]);
         json_t* Hold2J = json_integer(holdType[1]);
         json_t* Hold3J = json_integer(holdType[2]);
@@ -410,7 +408,8 @@ struct OncelerModule : Module
     }
 
     void dataFromJson(json_t* rootJ) override {
-       
+        json_t* panelJ = json_object_get(rootJ, "Panel");
+        if (panelJ) currPanel = json_integer_value(panelJ);
         json_t* Hold1J = json_object_get(rootJ, "Hold1");
         json_t* Hold2J = json_object_get(rootJ, "Hold2");
         json_t* Hold3J = json_object_get(rootJ, "Hold3");
@@ -461,9 +460,17 @@ struct OnceWidget : OncelerDisplay {
 
 
 struct OncelerPanelWidget : ModuleWidget {
+
+    #include "Theme/LogoLight.h"
+    //name for panel file, same name for every type
+    std::string panel;
+
     OncelerPanelWidget(OncelerModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Onceler_panel.svg")));
+
+        panel = PANEL;
+        //set panel on init
+        #include "Theme/initChoosePanel.h"
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
@@ -555,7 +562,24 @@ struct OncelerPanelWidget : ModuleWidget {
 
         }
       
+    }
 
+    //give struct to menu containing panel options
+    #include "Theme/PanelList.h" 
+
+    void appendContextMenu(Menu* menu) override {
+        OncelerModule* module = dynamic_cast<OncelerModule*>(this->module);
+        assert(module);
+
+        #include "Theme/CreatePanelMenu.h"
+    }
+
+    void step() override {
+        if (module) {
+            //change panel 
+            #include "Theme/UpdatePanel.h"
+        }
+        Widget::step();
     }
 
 };

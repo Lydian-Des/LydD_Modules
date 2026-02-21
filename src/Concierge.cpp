@@ -2,6 +2,8 @@
 #include <vector>
 #include <string>
 
+#define MODULE_NAME ClockModule
+#define PANEL "Clock_panel.svg"
 
 static const int maxPolyphony = 1;
 
@@ -374,6 +376,8 @@ struct ClockModule : Module
     BaseMatrices Matrix;
     ClockTree* clocks = new(ClockTree);
 
+    #include "Theme/PanelVars.h"
+
     ClockModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(GLOBAL_BPM_PARAM, -4.f, 1.f, 0.f, "BPM");
@@ -588,16 +592,17 @@ struct ClockModule : Module
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
+        json_t* panelJ = json_integer(currPanel);
         json_t* RunningJ = json_boolean(runSet);
-
+        json_object_set_new(rootJ, "Panel", panelJ);
         json_object_set_new(rootJ, "Running", RunningJ);
 
         return rootJ;
     }
 
     void dataFromJson(json_t* rootJ) override {
-       
+        json_t* panelJ = json_object_get(rootJ, "Panel");
+        if (panelJ) currPanel = json_integer_value(panelJ);
         json_t* RunningJ = json_object_get(rootJ, "Running");
         if (RunningJ) {
             runSet = json_boolean_value(RunningJ);
@@ -618,6 +623,7 @@ struct ClockDisplay : DigitalDisplay {
         bgText = " ";
         fontSize = 16;
     }
+    const NVGcolor BLOO = nvgRGB(0x00, 0xaa, 0xff);
 };
 
 
@@ -627,8 +633,37 @@ struct ClockWidget : ClockDisplay {
     ClockModule* module;
 
     void step() override {
-        int tempo = module ? module->clocks->getFundFreq() * 60 : 120;
+        int tempo = 120;
+        if (module) {
+            switch (module->currPanel) {
+            case 0: {
+                fgColor = rack::color::CYAN;
+                break;
+            }
+            case 1: {
+                fgColor = BLOO;
+                break;
+            }
+            case 2: {
+                fgColor = rack::color::MAGENTA;
+                break;
+            }
+            case 3: {
+                fgColor = rack::color::RED;
+                break;
+            }
+            case 4: {
+                fgColor = rack::color::YELLOW;
+                break;
+            }
+            case 5: {
+                fgColor = rack::color::YELLOW;
+                break;
+            }
+            }
 
+            tempo = module->clocks->getFundFreq() * 60;
+        }
         text = rack::string::f("%d", tempo);
     }
 };
@@ -641,6 +676,32 @@ struct TimeSignatureWidget : ClockDisplay {
         int quaver = 4;
         if (module) {
             module->clocks->getTimeSig(&beats, &quaver);
+            switch (module->currPanel) {
+            case 0: {
+                fgColor = rack::color::CYAN;
+                break;
+            }
+            case 1: {
+                fgColor = BLOO;
+                break;
+            }
+            case 2: {
+                fgColor = rack::color::MAGENTA;
+                break;
+            }
+            case 3: {
+                fgColor = rack::color::RED;
+                break;
+            }
+            case 4: {
+                fgColor = rack::color::YELLOW;
+                break;
+            }
+            case 5: {
+                fgColor = rack::color::YELLOW;
+                break;
+            }
+            }
         }
         int quavset = (int)((1.f / (float)quaver) * 16.f);
         text = rack::string::f("%d | %d", beats, quavset);
@@ -648,9 +709,17 @@ struct TimeSignatureWidget : ClockDisplay {
 };
 
 struct ClockPanelWidget : ModuleWidget {
+
+    #include "Theme/LogoLight.h"
+    std::string panel;
+
     ClockPanelWidget(ClockModule* module) {
+
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Clock_panel.svg")));
+
+        panel = PANEL;
+        //set panel on init
+        #include "Theme/initChoosePanel.h"
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
@@ -726,8 +795,31 @@ struct ClockPanelWidget : ModuleWidget {
             TSWidget->module = module;
             addChild(TSWidget);
 
+            //half of hp(in px) - half logo width, near bottom. 
+            Vec logoPos = Vec(((15.f * 10.f) / 2.f) - 22.5, 363.f);
+            ClockModule* module = dynamic_cast<ClockModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h"
         }
 
+    }
+
+    //give struct to menu containing panel options
+    #include "Theme/PanelList.h" 
+
+    void appendContextMenu(Menu* menu) override {
+        ClockModule* module = dynamic_cast<ClockModule*>(this->module);
+        assert(module);
+
+        #include "Theme/CreatePanelMenu.h"
+    }
+
+    void step() override {
+        if (module) {
+            //change panel 
+            #include "Theme/UpdatePanel.h"
+        }
+        Widget::step();
     }
 
 };

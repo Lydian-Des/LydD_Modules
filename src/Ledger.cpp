@@ -2,6 +2,8 @@
 #include <vector>
 #include <string>
 
+#define MODULE_NAME LedgerModule
+#define PANEL "Ledger_panel.svg"
 
 static const int maxPolyphony = 1;
 
@@ -113,6 +115,8 @@ struct LedgerModule : Module
     BaseFunctions Functions;
     BaseButtons Buttons;
     logicBlock blocks[5];
+
+    #include "Theme/PanelVars.h"
 
     LedgerModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -240,17 +244,14 @@ struct LedgerModule : Module
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
-        //json_t* RunningJ = json_boolean(runSet);
-
-        //json_object_set_new(rootJ, "Running", RunningJ);
-
+        json_t* panelJ = json_integer(currPanel);
+        json_object_set_new(rootJ, "Panel", panelJ);
         return rootJ;
     }
 
     void dataFromJson(json_t* rootJ) override {
-       
-        //json_t* RunningJ = json_object_get(rootJ, "Running");
+        json_t* panelJ = json_object_get(rootJ, "Panel");
+        if (panelJ) currPanel = json_integer_value(panelJ);
         
     }
 
@@ -270,15 +271,48 @@ struct LightGlyph : SvgLight {
     LightGlyph() {
 
     }
+    void drawHalo(const DrawArgs& args) override {
+        NVGcolor colour = this->color;
+        ModuleWidget* parent = dynamic_cast<ModuleWidget*>(this->getParent());
+        if (parent) {
+            LedgerModule* pmod = dynamic_cast<LedgerModule*>(parent->module);
+            if (pmod) {
+                if (pmod->currPanel == 5) {
+                    colour = rack::color::RED;
+                    colour.a *= this->color.a;
+                }
+                if (pmod->currPanel == 4) {
+                    colour = rack::color::BLUE;
+                    colour.a *= this->color.a;
+                }
+            }
+        }
+        this->color = colour;
+        LightWidget::drawHalo(args);
+    }
     void drawLight(const DrawArgs& args) override {
         //nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
         if (!sw->svg) return;
-
+        NVGcolor colour = this->color;
+        ModuleWidget* parent = dynamic_cast<ModuleWidget*>(this->getParent());
+        if (parent) {
+            LedgerModule* pmod = dynamic_cast<LedgerModule*>(parent->module);
+            if (pmod) {
+                if (pmod->currPanel == 5) {
+                    colour = rack::color::RED;
+                    colour.a = this->color.a;
+                }
+                if (pmod->currPanel == 4) {
+                    colour = rack::color::BLUE;
+                    colour.a = this->color.a;
+                }
+            }
+        }
         for (auto s = sw->svg->handle->shapes; s; s = s->next) {
 
             for (auto p = s->paths; p; p = p->next) {
                 nvgBeginPath(args.vg);
-                nvgFillColor(args.vg, this->color);
+                nvgFillColor(args.vg, colour);
                 nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
                 for (auto i = 0; i < p->npts - 1; i += 3) {
                     float* path = &p->pts[i * 2];
@@ -346,9 +380,17 @@ struct FLOPLight : LightGlyph {
 };
 
 struct LedgerPanelWidget : ModuleWidget {
+
+    #include "Theme/LogoLight.h"
+    
+    std::string panel;
+
     LedgerPanelWidget(LedgerModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Cask_panel.svg")));
+		
+        panel = PANEL;
+        //set panel on init
+        #include "Theme/initChoosePanel.h"
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
@@ -404,10 +446,24 @@ struct LedgerPanelWidget : ModuleWidget {
             addOutput(createOutput<PurplePort>(Vec(notLaneX, row2StartY + ((i + 1) * laneYdist)), module, LedgerModule::FLIPFLOPS_OUTPUT + i));
         }
 
+    }
 
-        
-      
+    //give struct to menu containing panel options
+    #include "Theme/PanelList.h" 
 
+    void appendContextMenu(Menu* menu) override {
+        LedgerModule* module = dynamic_cast<LedgerModule*>(this->module);
+        assert(module);
+
+        #include "Theme/CreatePanelMenu.h"
+    }
+
+    void step() override {
+        if (module) {
+            //change panel 
+            #include "Theme/UpdatePanel.h"
+        }
+        Widget::step();
     }
 
 };

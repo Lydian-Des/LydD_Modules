@@ -860,8 +860,7 @@ struct PoppyModule : Module
 
 };
 
-//this drawing shit is too goddamn big and needs some serious work. 
-//likely have to rewrite it entirely with an opengl widget.
+//still wanna eventually try to write this as something like a shader if I ca nwwrap my head around it
 class picture {
 public:
     int* kTerm;
@@ -989,9 +988,6 @@ struct FracWidget : Widget {
     }
     
     void onContextCreate(const ContextCreateEvent& e) override {
-       
-        
-
         isWindowOpen = true;
         //onContextCreate(e);
     }
@@ -1010,14 +1006,15 @@ struct FracWidget : Widget {
         Brot_Pick chosenBrot;
         drawboxX = box.size.x;
         drawboxY = box.size.y;
+        //make sure its also being asked to draw anything
         if (layer == 1 && Fracking && isWindowOpen) {
             
             nvgSave(args.vg);
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
-            /*nvgFillColor(args.vg, nvgRGBAf(0.0, 0.0, 0.0, 1.0));
+            nvgFillColor(args.vg, nvgRGBAf(0.0, 0.0, 0.0, 1.0));
             nvgBeginPath(args.vg);
             nvgRect(args.vg, 0.0, 0.0, drawboxX, drawboxY);
-            nvgFill(args.vg);*/
+            nvgFill(args.vg);
             
             float xdrawMin = Fracking->XplaceMin;
             float xdrawMax = Fracking->XplaceMax;
