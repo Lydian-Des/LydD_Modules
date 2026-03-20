@@ -3,6 +3,9 @@
 #include <string>
 
 
+#define MODULE_NAME ShearModule
+#define PANEL "Shear_panel.svg"
+
 static const int maxPolyphony = 1;
 
 
@@ -39,6 +42,8 @@ struct ShearModule : Module
 	enum LightIds {
         NUM_LIGHTS
     };
+
+    #include "Theme/PanelVars.h"
 
     BaseFunctions Functions;
     BaseButtons Buttons;
@@ -214,18 +219,14 @@ struct ShearModule : Module
     //nothing to save so the relic sits untouched
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
-        //json_t* RunningJ = json_boolean(runSet);
-
-        //json_object_set_new(rootJ, "Running", RunningJ);
-
+        json_t* panelJ = json_integer(currPanel);
+        json_object_set_new(rootJ, "Panel", panelJ);
         return rootJ;
     }
 
     void dataFromJson(json_t* rootJ) override {
-       
-        //json_t* RunningJ = json_object_get(rootJ, "Running");
-        
+        json_t* panelJ = json_object_get(rootJ, "Panel");
+        if (panelJ) currPanel = json_integer_value(panelJ);        
     }
 
 };
@@ -310,9 +311,14 @@ struct LineLight : ModuleLightWidget {
 
 
 struct ShearPanelWidget : ModuleWidget {
+
+    std::string panel;
+
     ShearPanelWidget(ShearModule* module) {
         setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Shear_panel.svg")));
+        panel = PANEL;
+        //set panel on init
+        #include "Theme/initChoosePanel.h"
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		//addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
@@ -354,6 +360,24 @@ struct ShearPanelWidget : ModuleWidget {
             LineLight* line3R = new LineLight(module, Vec(43.127, 164.835), Vec(12.189, 19.210), 5);
             addChild(line3R);
         }
+    }
+
+    //give struct to menu containing panel options
+    #include "Theme/PanelList.h" 
+
+    void appendContextMenu(Menu* menu) override {
+        ShearModule* module = dynamic_cast<ShearModule*>(this->module);
+        assert(module);
+
+        #include "Theme/CreatePanelMenu.h"
+    }
+
+    void step() override {
+        if (module) {
+            //change panel 
+            #include "Theme/UpdatePanel.h"
+        }
+        Widget::step();
     }
 
 };
