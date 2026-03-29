@@ -400,19 +400,15 @@ struct SimoneModule : Module
             float radin = (isinRAD) ? (abs(Functions.lerp(-1.5, 1.5, -5, 5, inputs[T_RAD_INPUT].getVoltage(0)))) : 1.0;
             Tradius = rack::math::clamp(rad + (radin * radatten), 0.f, 1.5f);
 
-            //float InCurrent1 = rack::math::clamp(CurrentPar[0] + abs((isinIT1) ? inputs[ITER1_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            //float InCurrent2 = rack::math::clamp(CurrentPar[1] + abs((isinIT2) ? inputs[ITER2_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            //float InCurrent3 = rack::math::clamp(CurrentPar[2] + abs((isinIT3) ? inputs[ITER3_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            //float InCurrent4 = rack::math::clamp(CurrentPar[3] + abs((isinIT4) ? inputs[ITER4_INPUT].getVoltage(0) : 0.f), 1.f, 6.f);
-            
-            float currentCasc1 = (isinIT1) ? abs(inputs[ITER1_INPUT].getVoltage(0)) : 1.f;
-            float currentCasc2 = (isinIT2) ? abs(inputs[ITER2_INPUT].getVoltage(0)) : currentCasc1;
-            float currentCasc3 = (isinIT3) ? abs(inputs[ITER3_INPUT].getVoltage(0)) : currentCasc2;
-            float currentCasc4 = (isinIT4) ? abs(inputs[ITER4_INPUT].getVoltage(0)) : currentCasc3;
-            float Incurrent1 = rack::math::clamp(CurrentPar[0] * (currentCasc1), 0.f, 7.f);
-            float Incurrent2 = rack::math::clamp(CurrentPar[1] * (currentCasc2), 0.f, 7.f);
-            float Incurrent3 = rack::math::clamp(CurrentPar[2] * (currentCasc3), 0.f, 7.f);
-            float Incurrent4 = rack::math::clamp(CurrentPar[3] * (currentCasc4), 0.f, 7.f);
+ 
+            float currentCasc1 = (isinIT1) ? abs(inputs[ITER1_INPUT].getVoltage(0) * 0.6f) : 1.f;
+            float currentCasc2 = (isinIT2) ? abs(inputs[ITER2_INPUT].getVoltage(0) * 0.6f) : currentCasc1;
+            float currentCasc3 = (isinIT3) ? abs(inputs[ITER3_INPUT].getVoltage(0) * 0.6f) : currentCasc2;
+            float currentCasc4 = (isinIT4) ? abs(inputs[ITER4_INPUT].getVoltage(0) * 0.6f) : currentCasc3;
+            float Incurrent1 = rack::math::clamp(CurrentPar[0] * (currentCasc1), 0.f, 6.8f);
+            float Incurrent2 = rack::math::clamp(CurrentPar[1] * (currentCasc2), 0.f, 6.8f);
+            float Incurrent3 = rack::math::clamp(CurrentPar[2] * (currentCasc3), 0.f, 6.8f);
+            float Incurrent4 = rack::math::clamp(CurrentPar[3] * (currentCasc4), 0.f, 6.8f);
             Current = std::vector<float>{ Incurrent1 + 1.f, Incurrent2 + 1.f, Incurrent3 + 1.f, Incurrent4 + 1.f };
 
             float placeCasc1 = (isinPOS1) ? Functions.lerp(-1.5, 1.5, -5, 5, inputs[POSITION1_INPUT].getVoltage(0)) : 1.f;
