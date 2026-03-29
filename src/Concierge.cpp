@@ -13,7 +13,7 @@ static rack::simd::float_4 One{ 1.f };
 class ClockTree {
 private:
     const float _2PIto1 = 0.1591549431f;//multiply 2pi based phase by this to rescale to 0-1
-
+    BaseFunctions F;
     enum FreeClocks {
         THRU_QUARTER,
         SIXTEENTH,
@@ -96,7 +96,7 @@ public:
     void setfundFreq() {
         float internalBPM = BPMparvolt + BPMinvolt;
         if (!isextConnect) {
-            clocksFreq[THRU_QUARTER] = VoltToFreq(internalBPM, 0.f, refBPS);
+            clocksFreq[THRU_QUARTER] = F.VoltToFreq(internalBPM, 0.f, refBPS);
         }
         else {
             clocksFreq[THRU_QUARTER] = externalclockFreq;
@@ -156,8 +156,8 @@ public:
         }
 
         clocksFreq[OFFBEAT_QUARTER] = clocksFreq[THRU_QUARTER];
-        clocksPhase[OFFBEAT_QUARTER] = clocksPhase[THRU_QUARTER] + (_PI + Swing);
-        bool offbeattick = clocksPhase[THRU_QUARTER] > (_PI + Swing);
+        clocksPhase[OFFBEAT_QUARTER] = clocksPhase[THRU_QUARTER] + (PI + Swing);
+        bool offbeattick = clocksPhase[THRU_QUARTER] > (PI + Swing);
         phaseSet[OFFBEAT_QUARTER] = clockphaseResets[OFFBEAT_QUARTER].process(offbeattick);
 
         //Generated multiples and measures
@@ -176,7 +176,7 @@ public:
             &clocksPhase[SIXTEENTH], &phaseSet[SIXTEENTH], &clockphaseResets[SIXTEENTH]);
 
         bool eighthtick = (clocksPhase[THRU_QUARTER] > 0.f && clocksPhase[THRU_QUARTER] < 0.25f)
-            || (offbeattick && clocksPhase[THRU_QUARTER] < _2_PI - 0.5);
+            || (offbeattick && clocksPhase[THRU_QUARTER] < _2PI - 0.5);
         tapCProcess(&clocksFreq[EIGHTH], &clocksFreq[THRU_QUARTER], 0.5f,
             eighthtick, &phaseSet[EIGHTH], &clockphaseResets[EIGHTH]);
 
@@ -202,7 +202,7 @@ public:
         tapCProcess(&clocksFreq[FOUR_MEAS], &clocksFreq[MEASURE], 4.f,
             fourmeasuretick, &phaseSet[FOUR_MEAS], &clockphaseResets[FOUR_MEAS]);
 
-        bool beatsmeasuretick = ((clocksTick[MEASURE] % (int)timeSignatureBeats + 1) + (clocksPhase[MEASURE] / _2_PI)) >= timeSignatureBeats;
+        bool beatsmeasuretick = ((clocksTick[MEASURE] % (int)timeSignatureBeats + 1) + (clocksPhase[MEASURE] / _2PI)) >= timeSignatureBeats;
         tapCProcess(&clocksFreq[BEATS_MEAS], &clocksFreq[MEASURE], timeSignatureBeats,
             beatsmeasuretick, &phaseSet[BEATS_MEAS], &clockphaseResets[BEATS_MEAS]);
 
@@ -211,7 +211,7 @@ public:
             sixteenmeasuretick, &phaseSet[SIXTEEN_MEAS], &clockphaseResets[SIXTEEN_MEAS]);
 
         float bbq = timeSignatureBeats * timeSignatureQuaver;
-        bool bbqmeasuretick = ((clocksTick[MEASURE] % (int)bbq + 1) + (clocksPhase[MEASURE] / _2_PI) >= bbq);
+        bool bbqmeasuretick = ((clocksTick[MEASURE] % (int)bbq + 1) + (clocksPhase[MEASURE] / _2PI) >= bbq);
         tapCProcess(&clocksFreq[BBQ_MEAS], &clocksFreq[MEASURE], bbq,
             bbqmeasuretick, &phaseSet[BBQ_MEAS], &clockphaseResets[BBQ_MEAS]);
 
@@ -222,7 +222,7 @@ public:
                 clockAdvance(i);
             }
 
-            incrementPhase(clocksFreq[i], samplerate, &clocksPhase[i]);
+            F.incrementPhase(clocksFreq[i], samplerate, &clocksPhase[i]);
         }
 
 
@@ -248,7 +248,7 @@ public:
                 measBphase[i] = 0.f;
             }
 
-            incrementPhase(measBfreq[i], samplerate, &measBphase[i]);
+            F.incrementPhase(measBfreq[i], samplerate, &measBphase[i]);
         }
 
     }
@@ -304,7 +304,7 @@ public:
     }
     float getMeasurePhase(int index, float shape) {
         float phase = clocksPhase[index] * _2PIto1;
-        float shapemod = lerp(1, phase, 0, 1, shape);//same curving as dobbs
+        float shapemod = F.lerp(1, phase, 0, 1, shape);//same curving as dobbs
         float curve = (phase * shapemod) * 10.f;
         return curve;
     }
