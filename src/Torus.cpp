@@ -636,8 +636,6 @@ struct TorusPanelWidget : ModuleWidget {
         //set panel on init
         #include "Theme/initChoosePanel.h"
 
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Torus_panel.svg")));
-
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
