@@ -1,9 +1,10 @@
 #include "plugin.hpp"
-#include <vector>
-#include <string>
 
 #define MODULE_NAME LedgerModule
 #define PANEL "Ledger_panel.svg"
+#define HP 8
+
+using namespace LydD;
 
 static const int maxPolyphony = 1;
 
@@ -112,8 +113,6 @@ struct LedgerModule : Module
         NUM_LIGHTS
     };
 
-    BaseFunctions Functions;
-    BaseButtons Buttons;
     logicBlock blocks[5];
 
     #include "Theme/PanelVars.h"
@@ -121,6 +120,7 @@ struct LedgerModule : Module
     LedgerModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
+        #include "Theme/setDefaultInit.h"
     }
 
     int currentPolyphony = 1;
@@ -273,6 +273,7 @@ struct LightGlyph : SvgLight {
     }
     void drawHalo(const DrawArgs& args) override {
         NVGcolor colour = this->color;
+        //change light color based on current modules current panel style
         ModuleWidget* parent = dynamic_cast<ModuleWidget*>(this->getParent());
         if (parent) {
             LedgerModule* pmod = dynamic_cast<LedgerModule*>(parent->module);
@@ -379,6 +380,7 @@ struct FLOPLight : LightGlyph {
 
 };
 
+using namespace LydD::Components;
 struct LedgerPanelWidget : ModuleWidget {
 
     #include "Theme/LogoLight.h"
@@ -445,7 +447,13 @@ struct LedgerPanelWidget : ModuleWidget {
 
             addOutput(createOutput<PurplePort>(Vec(notLaneX, row2StartY + ((i + 1) * laneYdist)), module, LedgerModule::FLIPFLOPS_OUTPUT + i));
         }
-
+        if (module) {
+            //must be called 'logoPos'for all modules
+            Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);
+            LedgerModule* module = dynamic_cast<LedgerModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h" 
+        }
     }
 
     //give struct to menu containing panel options

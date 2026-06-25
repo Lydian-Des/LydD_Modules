@@ -1,12 +1,12 @@
 
 #include "plugin.hpp"
-#include <vector>
 
 #define MODULE_NAME DadrasModule
 #define PANEL "Dadras_panel.svg"
+#define HP 16
 
- 
-
+using namespace LydD;
+using namespace LydD::Matrix;
 static const int maxPolyphony = 1;
 
 
@@ -68,8 +68,6 @@ struct MomDadEq {
 
 struct DadrasModule : Module
 {
-    BaseFunctions Functions;
-    BaseButtons Buttons;
     MomDadEq Paths;
     Lines* lines;
 
@@ -176,6 +174,9 @@ struct DadrasModule : Module
         configOutput(R_W_OUTPUT, "Dad-W");
 
         lines = new(Lines);
+
+
+    #include "Theme/setDefaultInit.h"
     }
   
     ~DadrasModule() {
@@ -186,15 +187,14 @@ struct DadrasModule : Module
 
     int loopCounter = 0;
     bool dirty = false;
-    int bounds = 120;
+    float bounds = 120;
     float runSpeed = 20.f;
-    bool synchro = false;
-    bool syn = false;
-    bool reSet = false;
-    bool reReset = false;
-    bool rev = false;
-    bool WSet = false;
-    bool WReset = false;
+    float synchro = false;
+    float syn = false;
+    float reSet = false;
+    float reReset = false;
+    float WSet = false;
+    float WReset = false;
     //mostly stable 4 scroll starting positions
     float dt = 900;
     float a = 7.6;
@@ -206,8 +206,8 @@ struct DadrasModule : Module
     float startZ = -6;
     float startW = -1;
 
-    bool editMode = false;
-    bool editreset = false;
+    float editMode = false;
+    float editreset = false;
 
 
     rack::simd::float_4 Start{startX, startY, startZ, startW};
@@ -244,7 +244,7 @@ struct DadrasModule : Module
         ++loopCounter;
         generateOutput(args);
 
-        Functions.incrementPhase(Pitch, args.sampleRate, &Phase, _2PI);
+        incrementPhase(Pitch, args.sampleRate, &Phase, rack::simd::float_4(_2_PI));
 
     }
 
@@ -259,21 +259,21 @@ struct DadrasModule : Module
 
         
         if (inputs[RESET_INPUT].isConnected()) {
-            Buttons.momentButton(inputs[RESET_INPUT].getVoltage(0), &reSet, &reReset);
+            momentButton(inputs[RESET_INPUT].getVoltage(0), &reSet, &reReset);
         }
         else {
-            Buttons.momentButton(params[RESET_BUTTON_PARAM].value, &reSet, &reReset);
+            momentButton(params[RESET_BUTTON_PARAM].value, &reSet, &reReset);
         }
 
         
         if (inputs[SYNCH_INPUT].isConnected()) {
-            Buttons.momentButton(inputs[SYNCH_INPUT].getVoltage(0), &synchro, &syn);
+            momentButton(inputs[SYNCH_INPUT].getVoltage(0), &synchro, &syn);
         }
         else {
-            Buttons.momentButton(params[SYNCH_BUTTON_PARAM].value, &synchro, &syn);
+            momentButton(params[SYNCH_BUTTON_PARAM].value, &synchro, &syn);
         }
 
-        Buttons.latchButton(params[WTYPE_BUTTON_PARAM].value, &WSet, &WReset);
+        latchButton(params[WTYPE_BUTTON_PARAM].value, &WSet, &WReset);
         lights[WTYPE_LIGHT + 0].setBrightness(!WSet);
         lights[WTYPE_LIGHT + 1].setBrightness(WSet);
         if (WSet) {
@@ -296,18 +296,18 @@ struct DadrasModule : Module
         if (inputs[O_INPUT].isConnected()) {
             O = rack::math::clamp(O + inputs[O_INPUT].getVoltage(0), -5.f, 5.f);
         }
-        a = Functions.lerp(5, 9, -5, 5, A);
-        b = Functions.lerp(22, 45, -5, 5, B);
-        g = Functions.lerp(6, 12, -5, 5, G);
-        o = Functions.lerp(1, 4, -5, 5, O);
+        a = lerp(5.f, 9.f, -5.f, 5.f, A);
+        b = lerp(22.f, 45.f, -5.f, 5.f, B);
+        g = lerp(6.f, 12.f, -5.f, 5.f, G);
+        o = lerp(1.f, 4.f, -5.f, 5.f, O);
 
         float parSpeed = (params[SPEED_PARAM].value);
         float inSpeed = (inputs[SPEED_INPUT].isConnected()) ? inputs[SPEED_INPUT].getVoltage(0) : 0.f;
         float parshiftSpeed = (params[SPEED_SHIFT_PARAM].value);
         float inshiftSpeed = (inputs[SPEED_SHIFT_INPUT].isConnected()) ? inputs[SPEED_SHIFT_INPUT].getVoltage(0) : 0.f;        
-        float basePitch = Functions.VoltToFreq(parSpeed + inSpeed, 0.0, refFreq);
-        float PitchL = Functions.VoltToFreq((parSpeed + inSpeed) - (parshiftSpeed + inshiftSpeed), 0.0, refFreq);
-        float PitchR = Functions.VoltToFreq((parSpeed + inSpeed) + (parshiftSpeed + inshiftSpeed), 0.0, refFreq);
+        float basePitch = VoltToFreq(parSpeed + inSpeed, 0.0, refFreq);
+        float PitchL = VoltToFreq((parSpeed + inSpeed) - (parshiftSpeed + inshiftSpeed), 0.0, refFreq);
+        float PitchR = VoltToFreq((parSpeed + inSpeed) + (parshiftSpeed + inshiftSpeed), 0.0, refFreq);
         Pitch = rack::simd::float_4{ basePitch, PitchL, PitchR, 0.f };
 
         float parSpread = params[SPREAD_PARAM].value;
@@ -321,12 +321,12 @@ struct DadrasModule : Module
         float inphaseShift = (inputs[TIME_PHASE_INPUT].isConnected()) ? inputs[TIME_PHASE_INPUT].getVoltage(0) : 0.f;
         phaseShift = rack::math::clamp(parphaseShift + inphaseShift, -3.14, 3.14);
 
-        float indad = (inputs[INFLUENCE_DAD_INPUT].isConnected()) ? Functions.lerp(0, 1, 0, 5, abs(inputs[INFLUENCE_DAD_INPUT].getVoltage(0))) : 0;
-        float inmom = (inputs[INFLUENCE_MOM_INPUT].isConnected()) ? Functions.lerp(0, 1, 0, 5, abs(inputs[INFLUENCE_MOM_INPUT].getVoltage(0))) : 0;
+        float indad = (inputs[INFLUENCE_DAD_INPUT].isConnected()) ? lerp(0.f, 1.f, 0.f, 5.f, abs(inputs[INFLUENCE_DAD_INPUT].getVoltage(0))) : 0.f;
+        float inmom = (inputs[INFLUENCE_MOM_INPUT].isConnected()) ? lerp(0.f, 1.f, 0.f, 5.f, abs(inputs[INFLUENCE_MOM_INPUT].getVoltage(0))) : 0.f;
         dadsInf = rack::math::clamp(params[INFLUENCE_DAD_PARAM].value + indad, 0.f, 1.f);
         momsInf = rack::math::clamp(params[INFLUENCE_MOM_PARAM].value + inmom, 0.f, 1.f);
         
-        Buttons.latchButton(params[EDIT_BUTTON_PARAM].value, &editMode, &editreset);
+        latchButton(params[EDIT_BUTTON_PARAM].value, &editMode, &editreset);
     }
     void resetspace() {
         CoordC = Start;
@@ -363,31 +363,31 @@ struct DadrasModule : Module
             rack::simd::float_4 CoordprevL = CoordL + Spread;
             rack::simd::float_4 CoordprevR = CoordR - Spread;
 
-            if (Phase[0] <= PI) {
+            if (Phase[0] <= _PI) {
                 click1 = true;
             }
-            if (Phase[1] <= PI) {
+            if (Phase[1] <= _PI) {
                 click2 = true;
             }
-            if (Phase[2] <= PI) {
+            if (Phase[2] <= _PI) {
                 click3 = true;
             }
-            if (Phase[0] > PI && click1) {
+            if (Phase[0] > _PI && click1) {
                 lines->build(CoordC, CoordL, CoordR);
                 //pull toward mom or dad w/ influence
-                CoordprevC += Functions.incrementToward(CoordprevC, CoordL, 100) * momsInf;
-                CoordprevC += Functions.incrementToward(CoordprevC, CoordR, 100) * dadsInf;
+                CoordprevC += incrementToward(CoordprevC, CoordL, 100) * momsInf;
+                CoordprevC += incrementToward(CoordprevC, CoordR, 100) * dadsInf;
                 CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
 
                 click1 = false;
             }
-            if (Phase[1] > PI && click2) {
+            if (Phase[1] > _PI && click2) {
 
                 CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
 
                 click2 = false;
             }
-            if (Phase[2] > PI && click3) {
+            if (Phase[2] > _PI && click3) {
 
                 CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
 
@@ -398,11 +398,11 @@ struct DadrasModule : Module
             float outputL[4] = { 0 };
             float outputR[4] = { 0 };
             for (int i = 0; i < 4; ++i) {
-                outputC[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
+                outputC[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
                 outputC[i] = rack::math::clamp(outputC[i], -8.f, 8.f);
-                outputL[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
+                outputL[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
                 outputL[i] = rack::math::clamp(outputL[i], -8.f, 8.f);
-                outputR[i] = Functions.lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
+                outputR[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
                 outputR[i] = rack::math::clamp(outputR[i], -8.f, 8.f);
             }
 
@@ -470,6 +470,7 @@ struct DadWidgetBuffer : FramebufferWidget {
     DadWidgetBuffer(DadrasModule* m) {
         Momeni = m;
     }
+    //this kind of dirty control has never worked for me. if needed i just count loops in the draw code(just poppy rn)
     void step() override {
         FramebufferWidget::dirty = false;
         if (Momeni->dirty) {
@@ -489,10 +490,6 @@ struct DadWidget : Widget{
         box.pos = topLeft;
 
     }
-    BaseFunctions Functions;
-    BaseMatrices Matrix;
-
-
     rack::simd::float_4 spinX = 60 ;
     rack::simd::float_4 spinY = 30 ;
     rack::simd::float_4 spinZ = 20 ;
@@ -502,10 +499,10 @@ struct DadWidget : Widget{
     int frames = 0;
     
     void drawLayer(const DrawArgs& args, int layer) override {
-        if (layer == 1 /*&& Momeni->dirty*/) {
-            int drawboxX = box.size.x;
-            int drawboxY = box.size.y;
-            int bound = Momeni->bounds;
+        if (layer == 1) {
+            float drawboxX = box.size.x;
+            float drawboxY = box.size.y;
+            float bound = Momeni->bounds;
             
             
                    
@@ -615,11 +612,11 @@ struct DadWidget : Widget{
             for (int s = 0; s < (int)Spawnp.size(); ++s) {
                 //just a whole fuckton of matrix multiplication to draw these snake lines. really?
                 rack::simd::float_4 Zero = 0;
-                std::vector<rack::simd::float_4> rotationYZ = Matrix.RotationYZ(spinX);
-                std::vector<rack::simd::float_4> rotationXZ = Matrix.RotationXZ(spinY);
-                std::vector<rack::simd::float_4> rotationXY = Matrix.RotationXY(spinZ);
-                std::vector<rack::simd::float_4> rotationZW = Matrix.RotationZW(spinW);
-                std::vector<rack::simd::float_4> rotationYW = Matrix.RotationYW(spinW);
+                std::vector<rack::simd::float_4> rotationYZ = RotationYZ(spinX);
+                std::vector<rack::simd::float_4> rotationXZ = RotationXZ(spinY);
+                std::vector<rack::simd::float_4> rotationXY = RotationXY(spinZ);
+                std::vector<rack::simd::float_4> rotationZW = RotationZW(spinW);
+                std::vector<rack::simd::float_4> rotationYW = RotationYW(spinW);
 
                 std::vector<rack::simd::float_4> Wstyle = rotationZW;
                 int depthDim = 2;                
@@ -635,26 +632,26 @@ struct DadWidget : Widget{
                 std::vector<rack::simd::float_4> LinesVec{  Spawnp[s], Momp[s], Dadp[s], Zero};
                 std::vector<rack::simd::float_4> LinesVecprev{ Spawnp[abs(s - 1)], Momp[abs(s - 1)], Dadp[abs(s - 1)], Zero};
 
-                std::vector<rack::simd::float_4> LinesRotate = Matrix.MatrixMult(rotationYZ, LinesVec);
-                LinesRotate = Matrix.MatrixMult(rotationXZ, LinesRotate);
-                LinesRotate = Matrix.MatrixMult(Wstyle, LinesRotate);
+                std::vector<rack::simd::float_4> LinesRotate = MatrixMult(rotationYZ, LinesVec);
+                LinesRotate = MatrixMult(rotationXZ, LinesRotate);
+                LinesRotate = MatrixMult(Wstyle, LinesRotate);
 
-                std::vector<rack::simd::float_4> LinesRotateprev = Matrix.MatrixMult(rotationYZ, LinesVecprev);
-                LinesRotateprev = Matrix.MatrixMult(rotationXZ, LinesRotateprev);
-                LinesRotateprev = Matrix.MatrixMult(Wstyle, LinesRotateprev);
+                std::vector<rack::simd::float_4> LinesRotateprev = MatrixMult(rotationYZ, LinesVecprev);
+                LinesRotateprev = MatrixMult(rotationXZ, LinesRotateprev);
+                LinesRotateprev = MatrixMult(Wstyle, LinesRotateprev);
 
                     
                 float distance = 1.05;
-                float distconv = Functions.lerp(0, 1, -bound + 50, bound - 50, -Spawnp[s][(Momeni->axis == 0) ? 2 : depthDim]);
-                float distconvprev = Functions.lerp(0, 1, -bound + 50, bound - 50, -Spawnp[abs(s - 1)][(Momeni->axis == 0) ? 2 : depthDim]);
+                float distconv = lerp(0.f, 1.f, -bound + 50.f, bound - 50.f, -Spawnp[s][depthDim]);
+                float distconvprev = lerp(0.f, 1.f, -bound + 50.f, bound - 50.f, -Spawnp[abs(s - 1)][depthDim]);
                 float Q = 1  / (distance - distconv);
-                std::vector<rack::simd::float_4> projection = Matrix.Projection(Q);
+                std::vector<rack::simd::float_4> projection = Projection(Q);
 
                 float E = 1  / (distance - distconvprev);
-                std::vector<rack::simd::float_4> projectionprev = Matrix.Projection(E);
+                std::vector<rack::simd::float_4> projectionprev = Projection(E);
 
-                std::vector<rack::simd::float_4> LinesProject = Matrix.MatrixMult(projection, LinesRotate);
-                std::vector<rack::simd::float_4> LinesProjectprev = Matrix.MatrixMult(projectionprev, LinesRotateprev);
+                std::vector<rack::simd::float_4> LinesProject = MatrixMult(projection, LinesRotate);
+                std::vector<rack::simd::float_4> LinesProjectprev = MatrixMult(projectionprev, LinesRotateprev);
 
                 rack::simd::float_4 disp1 = LinesProject[0];
                 rack::simd::float_4 disp2 = LinesProject[1];
@@ -697,20 +694,20 @@ struct DadWidget : Widget{
                     line3screenY = disp3[3];
                     line3screenYprev = disprev3[3];
                 }
-                float rotscreenX1 = Functions.lerp(0, drawboxX, -bound, bound, line1screenX);
-                float rotscreenY1 = Functions.lerp(0, drawboxY, -bound, bound, -line1screenY);
-                float rotscreenX1prev = Functions.lerp(0, drawboxX, -bound, bound, line1screenXprev);
-                float rotscreenY1prev = Functions.lerp(0, drawboxY, -bound, bound, -line1screenYprev);
+                float rotscreenX1 = lerp(0.f, drawboxX, -bound, bound, line1screenX);
+                float rotscreenY1 = lerp(0.f, drawboxY, -bound, bound, -line1screenY);
+                float rotscreenX1prev = lerp(0.f, drawboxX, -bound, bound, line1screenXprev);
+                float rotscreenY1prev = lerp(0.f, drawboxY, -bound, bound, -line1screenYprev);
 
-                float rotscreenX2 = Functions.lerp(0, drawboxX, -bound, bound, line2screenX);
-                float rotscreenY2 = Functions.lerp(0, drawboxY, -bound, bound, -line2screenY);
-                float rotscreenX2prev = Functions.lerp(0, drawboxX, -bound, bound, line2screenXprev);
-                float rotscreenY2prev = Functions.lerp(0, drawboxY, -bound, bound, -line2screenYprev);
+                float rotscreenX2 = lerp(0.f, drawboxX, -bound, bound, line2screenX);
+                float rotscreenY2 = lerp(0.f, drawboxY, -bound, bound, -line2screenY);
+                float rotscreenX2prev = lerp(0.f, drawboxX, -bound, bound, line2screenXprev);
+                float rotscreenY2prev = lerp(0.f, drawboxY, -bound, bound, -line2screenYprev);
 
-                float rotscreenX3 = Functions.lerp(0, drawboxX, -bound, bound, line3screenX);
-                float rotscreenY3 = Functions.lerp(0, drawboxY, -bound, bound, -line3screenY);   
-                float rotscreenX3prev = Functions.lerp(0, drawboxX, -bound, bound, line3screenXprev);
-                float rotscreenY3prev = Functions.lerp(0, drawboxY, -bound, bound, -line3screenYprev);
+                float rotscreenX3 = lerp(0.f, drawboxX, -bound, bound, line3screenX);
+                float rotscreenY3 = lerp(0.f, drawboxY, -bound, bound, -line3screenY);   
+                float rotscreenX3prev = lerp(0.f, drawboxX, -bound, bound, line3screenXprev);
+                float rotscreenY3prev = lerp(0.f, drawboxY, -bound, bound, -line3screenYprev);
                 
                 
                 
@@ -763,9 +760,9 @@ struct DadWidget : Widget{
         Widget::drawLayer(args, layer);
     }
 };
-
+using namespace LydD::Components;
 struct DadrasWidget : ModuleWidget {
-        #include "Theme/LogoLight.h"
+    #include "Theme/LogoLight.h"
     //name for panel file, same name for every type
     std::string panel;
 
@@ -833,7 +830,8 @@ struct DadrasWidget : ModuleWidget {
             myWidget->setSize(Vec(160, 120));
             DadBuffer->addChild(myWidget);
             addChild(DadBuffer);
-            Vec logoPos = Vec(((15.f * 16.f) / 2.f) - 22.5, 363.f);
+            //must be called 'logoPos'for all modules
+            Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);
             DadrasModule* module = dynamic_cast<DadrasModule*>(this->module);
             assert(module);
             #include "Theme/LogoChild.h"           

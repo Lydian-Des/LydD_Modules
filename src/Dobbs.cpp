@@ -1,15 +1,15 @@
 #include "plugin.hpp"
-#include <vector>
-#include <string>
 
 #define MODULE_NAME DobbsModule
 #define PANEL "Dobbs_panel.svg"
+#define HP 12
+
+using namespace LydD;
 
 static const int maxPolyphony = 1;
 
 class Envelope {
 private:
-    BaseFunctions Functions;
     rack::dsp::BooleanTrigger _trigger;
     rack::dsp::BooleanTrigger _EOC;
     rack::dsp::PulseGenerator _EOCPulse;
@@ -69,7 +69,7 @@ public:
     }
     void AttackPhase(float* Value, float sampletime) {
         if (this->Attacking) {
-            float shapemod = Functions.lerp(1, *Value, 0, 1, this->Shape);
+            float shapemod = lerp(1.f, *Value, 0.f, 1.f, this->Shape);
             
             this->Aphase = this->samplePhase / this->Atime;
             *Value = this->Aphase * shapemod;
@@ -87,7 +87,7 @@ public:
     void ReleasePhase(float* Value, float sampletime) {
         this->EOC = _EOC.process(*Value <= 0.01f);
         if (!this->Attacking && *Value > 0.f && !this->Sustaining) {
-            float shapemod = Functions.lerp(1, *Value, 0, 1, this->Shape);
+            float shapemod = lerp(1.f, *Value, 0.f, 1.f, this->Shape);
             
             this->Rphase = this->samplePhase / this->Rtime;
             *Value = (-this->Rphase + 1.f) * shapemod;
@@ -152,12 +152,11 @@ struct DobbsModule : Module
         SPEEDMAIN_RIGHT_LIGHT,
         SPEEDCOMP_LEFT_LIGHT,
         SPEEDCOMP_RIGHT_LIGHT,
+        ENUMS(MOUNT_LIGHT, 6),
+        ENUMS(HILL_LIGHT, 6),
         NUM_LIGHTS
     };
 
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-    BaseMatrices Matrix;
     Envelope ENVmain[2];
     Envelope ENVcomp[2];
 
@@ -225,6 +224,8 @@ struct DobbsModule : Module
             configOutput(EOCCOMP_OUTPUT + i, eoc2);
         }
 
+
+        #include "Theme/setDefaultInit.h"
     }
 
     int currentPolyphony = 1;
@@ -233,12 +234,12 @@ struct DobbsModule : Module
     float Gates[2] = { 0.f, 0.f };
     float EnvelopeMain[2] = { 0.f, 0.f };
     float EnvelopeCompanion[2] = { 0.f, 0.f };
-    bool ASRset[2] = { false, false };
-    bool ASRunset[2] = { false, false };
-    bool spdFsetM[2] = { false, false };
-    bool spdFresetM[2] = { false, false };
-    bool spdFsetC[2] = { false, false };
-    bool spdFresetC[2] = {false, false};
+    float ASRset[2] = { false, false };
+    float ASRunset[2] = { false, false };
+    float spdFsetM[2] = { false, false };
+    float spdFresetM[2] = { false, false };
+    float spdFsetC[2] = { false, false };
+    float spdFresetC[2] = {false, false};
    
     void process(const ProcessArgs& args) override {
 
@@ -252,7 +253,7 @@ struct DobbsModule : Module
         generateOutput(args);
 
         if (loopCounter % 4 == 0) {
-
+            doLights(args);
         }
         
         ++loopCounter;
@@ -268,17 +269,12 @@ struct DobbsModule : Module
 
 
         for (int i = 0; i < 2; ++i) {
-            Buttons.latchButton(params[MODE_BUTTON_PARAM + i].value, &ASRset[i], &ASRunset[i]);
-            Buttons.latchButton(params[SPEED_FMAIN_BUTTON_PARAM + i].value, &spdFsetM[i], &spdFresetM[i]);
-            Buttons.latchButton(params[SPEED_FCOMP_BUTTON_PARAM + i].value, &spdFsetC[i], &spdFresetC[i]);
+            latchButton(params[MODE_BUTTON_PARAM + i].value, &ASRset[i], &ASRunset[i]);
+            latchButton(params[SPEED_FMAIN_BUTTON_PARAM + i].value, &spdFsetM[i], &spdFresetM[i]);
+            latchButton(params[SPEED_FCOMP_BUTTON_PARAM + i].value, &spdFsetC[i], &spdFresetC[i]);
             Gates[i] = (inputs[GATE_INPUT + i].isConnected()) ? inputs[GATE_INPUT + i].getVoltage(0) : 0.f;
         }
-        lights[ASR_LEFT_LIGHT].setBrightness(ASRset[0]);
-        lights[ASR_RIGHT_LIGHT].setBrightness(ASRset[1]);
-        lights[SPEEDMAIN_LEFT_LIGHT].setBrightness(spdFsetM[0]);
-        lights[SPEEDMAIN_RIGHT_LIGHT].setBrightness(spdFsetM[1]);
-        lights[SPEEDCOMP_LEFT_LIGHT].setBrightness(spdFsetC[0]);
-        lights[SPEEDCOMP_RIGHT_LIGHT].setBrightness(spdFsetC[1]);
+        
     }
 
     void generateOutput(const ProcessArgs& args) {
@@ -307,6 +303,62 @@ struct DobbsModule : Module
             outputs[EOCCOMP_OUTPUT + i].setVoltage(EOCcomp, 0);
 
         }
+    }
+
+    void doLights(const ProcessArgs& args) {
+        float Hue;
+        switch (currPanel) {
+        default: {
+
+        }
+        case 0: {
+            Hue = 136.f;
+            break;
+        }
+        case 1: {
+            Hue = 201.f;
+            break;
+        }
+        case 2: {
+            Hue = 325;
+            break;
+        }
+        case 3: {
+            Hue = 26;
+            break;
+        }
+        case 4 : {
+            Hue = 256;
+            break;
+        }
+        case 5: {
+            Hue = 60;
+            break;
+        }
+        }
+        for (int l = 0; l < 2; ++l) {
+            int i = l * 3;
+            float enVal = EnvelopeMain[l];
+            float coVal = EnvelopeCompanion[l];
+
+            //float hu = ((this->currPanel / 5.f) + (enVal / 5.f)) * 360.f;
+            float r1, g1, b1, r2, g2, b2;
+            Components::HSLtoRGB(Hue + enVal, 0.98, enVal * 0.56f, &r1, &g1, &b1);
+            Components::HSLtoRGB(Hue + coVal, 0.98, coVal * 0.56f, &r2, &g2, &b2);
+            lights[MOUNT_LIGHT + i + 0].setBrightness(enVal * r1 / 255.f);
+            lights[MOUNT_LIGHT + i + 1].setBrightness(enVal * g1 / 255.f);
+            lights[MOUNT_LIGHT + i + 2].setBrightness(enVal * b1 / 255.f);
+            lights[HILL_LIGHT + i + 0].setBrightness(coVal * r2 / 255.f);
+            lights[HILL_LIGHT + i + 1].setBrightness(coVal * g2 / 255.f);
+            lights[HILL_LIGHT + i + 2].setBrightness(coVal * b2 / 255.f);
+
+        }
+        lights[ASR_LEFT_LIGHT].setBrightness(ASRset[0]);
+        lights[ASR_RIGHT_LIGHT].setBrightness(ASRset[1]);
+        lights[SPEEDMAIN_LEFT_LIGHT].setBrightness(spdFsetM[0]);
+        lights[SPEEDMAIN_RIGHT_LIGHT].setBrightness(spdFsetM[1]);
+        lights[SPEEDCOMP_LEFT_LIGHT].setBrightness(spdFsetC[0]);
+        lights[SPEEDCOMP_RIGHT_LIGHT].setBrightness(spdFsetC[1]);
     }
 
     json_t* dataToJson() override {
@@ -353,85 +405,30 @@ struct DobbsModule : Module
 
 };
 
-
-struct EnvLEDMain : SvgWidget {
-    DobbsModule* module;
-    int side;
-    EnvLEDMain() {
-        //this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/MountDobbsLeft.svg")));
-    }
-    void Svg(std::string path) {
-        this->setSvg(Svg::load(asset::plugin(pluginInstance, path)));
-    }
-    void drawLayer(const DrawArgs& args, int layer) override {
-
-        nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
-        if (!svg) return;
-        if (module && layer == 1) {
-            for (auto s = svg->handle->shapes; s; s = s->next) {
-                nvgStrokeWidth(args.vg, (s->strokeWidth));
-                float enVal = (module->EnvelopeMain[side] );
-                nvgFillColor(args.vg, nvgHSL((0.3f + (module->currPanel / 5.f)) + (enVal / 5.f), 0.8, enVal * 0.6f));
-                for (auto p = s->paths; p; p = p->next) {
-                    nvgBeginPath(args.vg);
-                    nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
-                    for (auto i = 0; i < p->npts - 1; i += 3) {
-                        float* path = &p->pts[i * 2];
-                        nvgBezierTo(args.vg, path[2], path[3], path[4], path[5], path[6], path[7]);
-                    }
-                    if (p->closed)
-                        nvgLineTo(args.vg, p->pts[0], p->pts[1]);
-                    if (s->fill.type)
-                        nvgFill(args.vg);
-                    if (s->stroke.type)
-                        nvgStroke(args.vg);
-                }
-            }
-        }
-        Widget::drawLayer(args, layer);
+struct LeftDobbsLight1 : Components::TColorSVGLight {
+    LeftDobbsLight1() {
+        this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/DobbsLights/MountDobbsLeft.svg")));
     }
 };
-//identical, could remove if added flag like side for which envelope to assess
-struct EnvLEDComp : SvgWidget {
-    DobbsModule* module;
-    int side;
-    EnvLEDComp() {
-        //this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/MountDobbsLeft2.svg")));
+struct LeftDobbsLight2 : Components::TColorSVGLight {
+    LeftDobbsLight2() {
+        this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/DobbsLights/MountDobbsLeft2.svg")));
     }
-    void Svg(std::string path) {
-        this->setSvg(Svg::load(asset::plugin(pluginInstance, path)));
+};
+struct RightDobbsLight1 : Components::TColorSVGLight {
+    RightDobbsLight1() {
+        this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/DobbsLights/MountDobbsRight.svg")));
     }
-    void drawLayer(const DrawArgs& args, int layer) override {
-
-        nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
-        if (!svg) return;
-        if (module && layer == 1) {
-            for (auto s = svg->handle->shapes; s; s = s->next) {
-                nvgStrokeWidth(args.vg, (s->strokeWidth));
-                float enVal = (module->EnvelopeCompanion[side]);
-                nvgFillColor(args.vg, nvgHSL(0.3f + (enVal * 0.2f), 0.5f, enVal * 0.6f) /*nvgRGBAf(0.f, 1.f, 0.2f, enVal)*/);
-                for (auto p = s->paths; p; p = p->next) {
-                    nvgBeginPath(args.vg);
-                    nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
-                    for (auto i = 0; i < p->npts - 1; i += 3) {
-                        float* path = &p->pts[i * 2];
-                        nvgBezierTo(args.vg, path[2], path[3], path[4], path[5], path[6], path[7]);
-                    }
-                    if (p->closed)
-                        nvgLineTo(args.vg, p->pts[0], p->pts[1]);
-                    if (s->fill.type)
-                        nvgFill(args.vg);
-                    if (s->stroke.type)
-                        nvgStroke(args.vg);
-                }
-            }
-        }
-        Widget::drawLayer(args, layer);
+};
+struct RightDobbsLight2 : Components::TColorSVGLight {
+    RightDobbsLight2() {
+        this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/DobbsLights/MountDobbsRight2.svg")));
     }
 };
 
-
+using namespace LydD::Components;
 struct DobbsPanelWidget : ModuleWidget {
+
 
     #include "Theme/LogoLight.h"
     std::string panel;
@@ -503,31 +500,19 @@ struct DobbsPanelWidget : ModuleWidget {
         addOutput(createOutput<PurplePort>(Vec(136, 340), module, DobbsModule::EOCMAIN_OUTPUT + 1));
         addOutput(createOutput<PurplePort>(Vec(111, 340), module, DobbsModule::EOCCOMP_OUTPUT + 1));
 
+        //mountain shaped lights to follow envelopes
+        addChild(createLight<LeftDobbsLight1>(Vec(0, 33), module, DobbsModule::MOUNT_LIGHT + 0));
+        addChild(createLight<LeftDobbsLight2>(Vec(65, 36.5), module, DobbsModule::HILL_LIGHT + 0));
+        addChild(createLight<RightDobbsLight1>(Vec(116, 25), module, DobbsModule::MOUNT_LIGHT + 3));
+        addChild(createLight<RightDobbsLight2>(Vec(55.5, 28), module, DobbsModule::HILL_LIGHT + 3));
+
         if (module) {
-            EnvLEDMain* Main1 = createWidget<EnvLEDMain>(Vec(0, 33));
-            Main1->Svg("res/DobbsLights/MountDobbsLeft.svg");
-            Main1->side = 0;
-            Main1->module = module;
-            addChild(Main1);
 
-            EnvLEDComp* Comp1 = createWidget<EnvLEDComp>(Vec(65, 36.5));
-            Comp1->Svg("res/DobbsLights/MountDobbsLeft2.svg");
-            Comp1->side = 0;
-            Comp1->module = module;
-            addChild(Comp1);
-
-            EnvLEDMain* Main2 = createWidget<EnvLEDMain>(Vec(116, 25));
-            Main2->Svg("res/DobbsLights/MountDobbsRight.svg");
-            Main2->side = 1;
-            Main2->module = module;
-            addChild(Main2);
-
-            EnvLEDComp* Comp2 = createWidget<EnvLEDComp>(Vec(55.5, 28));
-            Comp2->Svg("res/DobbsLights/MountDobbsRight2.svg");
-            Comp2->side = 1;
-            Comp2->module = module;
-            addChild(Comp2);
-
+            //must be called 'logoPos'for all modules
+            Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);
+            DobbsModule* module = dynamic_cast<DobbsModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h" 
         }
     }
     

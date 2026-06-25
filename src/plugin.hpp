@@ -1,21 +1,19 @@
+#include <vector>
+#include <string>
 #include "rack.hpp"
-#include "BasicFunctions.h"
+#include "Lydapi/LydBase.h"
+
+
+
 using namespace rack;
 
 extern Plugin* pluginInstance;
-struct PurpleSwitch : app::SvgSwitch {
-    PurpleSwitch() {
-        addFrame(Svg::load(asset::plugin(pluginInstance, "res/components/PurpleSwitch_0.svg")));
-        addFrame(Svg::load(asset::plugin(pluginInstance, "res/components/PurpleSwitch_1.svg")));
-        addFrame(Svg::load(asset::plugin(pluginInstance, "res/components/PurpleSwitch_2.svg")));
-    }
-};
 
-struct PurplePort : app::SvgPort {
-    PurplePort() {
-        setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/PurpleJack23px.svg")));
-    }
-};
+extern int defaultPanel;
+//prev seems always used as false??
+void setDefPanel(int pan, bool prev);
+int getDefPanel(bool prev);
+
 
 /*Taken straight from VCV Fundamental, for segment text/numerical display*/
 struct DigitalDisplay : Widget {
@@ -64,6 +62,7 @@ struct DigitalDisplay : Widget {
     }
 };
 
+
 extern Model* modelPoppy;
 extern Model* modelDadMom;
 extern Model* modelSimone;
@@ -73,3 +72,10 @@ extern Model* modelDobbs;
 extern Model* modelLedger;
 extern Model* modelOnceler;
 extern Model* modelShear;
+extern Model* modelSwitch;
+extern Model* modelQuant;
+extern Model* modelReflect;
+extern Model* modelCanyon;
+extern Model* modelSeethe;
+
+

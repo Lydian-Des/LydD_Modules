@@ -1,4 +1,4 @@
-int curr = module ? module->currPanel : 0;
+int curr = module ? module->currPanel : getDefPanel(false);
 
 	switch (curr) {
 	case 0:	// Dark

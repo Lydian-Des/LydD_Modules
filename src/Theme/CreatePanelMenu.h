@@ -9,3 +9,7 @@ menu->addChild(createMenuLabel("Panel"));
 PanelMenu* menulist = createMenuItem<PanelMenu>("Choose Panel", RIGHT_ARROW);
 menulist->module = module;
 menu->addChild(menulist);
+
+DefaultPanelMenu* defmenulist = createMenuItem<DefaultPanelMenu>("Choose Default Panel", RIGHT_ARROW);
+defmenulist->module = module;
+menu->addChild(defmenulist);

@@ -9,7 +9,7 @@ FLAGS += -I./dsp
 # Add .cpp and .c files to the build
 # This says "all cpp files are in the src folder. You can add more files
 # to that folder and they will get compiled and linked also.
-SOURCES += $(wildcard src/*.cpp)
+SOURCES += $(wildcard src/*.cpp) $(wildcard src/Lydapi/*.cpp)
 
 
 # Add files to the ZIP package when running `make dist`

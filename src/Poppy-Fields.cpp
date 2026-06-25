@@ -3,12 +3,21 @@
 #include "plugin.hpp"
 #include <complex>
 #include <cmath>
-#include <vector>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 #define MODULE_NAME PoppyModule
 #define PANEL "fractal_panel.svg"
+#define HP 20
 
+//maximum sequence length
+#define ITERS 64
 const float E = 2.7182818284590;
+
+
+using namespace LydD;
+
 
 //can I wrap this and the switch struct in a class without th functions becoming 'members' and breaking the array
 using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::complex<float>);
@@ -28,11 +37,13 @@ using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::comple
     }
 
     std::complex<float> Beetle(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        rack::simd::float_4 realZ(real(Ztemp));
-        rack::simd::float_4 imagZ(imag(Ztemp));
-        rack::simd::float_4 Zrnew = sin(realZ);
-        rack::simd::float_4 Zinew = sin(imagZ);
-        return pow(std::complex<float>(Zrnew[0], Zinew[0]), EXP) + C;
+        float realZ = sinApproxNick(real(Ztemp));
+        float imagZ = sinApproxNick(imag(Ztemp));
+        //rack::simd::float_4 realZ(real(Ztemp));
+       // rack::simd::float_4 imagZ(imag(Ztemp));
+       // rack::simd::float_4 Zrnew = sin(realZ);
+       // rack::simd::float_4 Zinew = sin(imagZ);
+        return pow(std::complex<float>(realZ, imagZ), EXP) + C;
     }
 
     std::complex<float> Bird(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
@@ -48,6 +59,7 @@ using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::comple
     std::complex<float> Unicorn(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
         return andrewkayTan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
     }
+    //returns the function itself to reduce # of switches run
     struct brotPicker {
 
         Brot_Pick chooseFractal(int fractal) {
@@ -154,19 +166,124 @@ struct PoppyModule : Module
     //panel variable holder
 #include "Theme/PanelVars.h"
 
-    //maximum sequence length
-    const int iters = 64;
+    brotPicker Brot;
+
+    int loopCounter = 0;
+    //init chosen fractal
+    Brot_Pick brotType = Brot.chooseFractal(0);
+    //vectors being filled with sequence
+    float xCoord[ITERS + 1];
+    float yCoord[ITERS + 1];
+
+    //output ranges and bounding box for zoom
+    float range = 2.f;
+    float _range = 0.f;
+    float rangeY = 2.f;
+    float _rangeY = 0.f;
+    float XplaceMin = -2;
+    float XplaceMax = 2;
+    float YplaceMin = -2;
+    float YplaceMax = 2;
+    float MOVEX = 0.f;
+    float MOVEY = 0.f;
+    float ZOOM = 0.f;
+    std::atomic<bool> _ANYCHANGE{ false };
+    std::atomic<bool> _DRAWCHANGE{ false };
+
+    //bools for connected ins  
+    bool inZxconnect = false;
+    bool inZyconnect = false;
+    bool inCxconnect = false;
+    bool inCyconnect = false;
+    bool inEXPconnect = false;
+    bool inYClockconnect = false;
+    bool inReverseconnect = false;
+    bool inStartconnect = false;
+    bool inSizeconnect = false;
+    bool inResetconnect = false;
+    bool inslewX = false;
+    bool inslewY = false;
+
+    //bools and ints for buttontypes    
+    bool auxbutton = 0;
+    int auxType = 0;
+    bool fract = 0;
+    int fractal = 0;
+    bool qual = 0;
+    int quality = 1;
+    bool julia = false;
+    bool jul = false;
+    bool reverse = false;
+    bool rev = false;
+    bool mirror = false;
+    bool mir = false;
+    bool invert = false;
+    bool inv = false;
+    bool reset = false;
+    bool res = false;
+    bool clockTapSet = false;
+    bool clockTapReset = false;
+    bool CtoMove = false;
+    bool CM = false;
+    bool MovetoZ = false;
+    bool MZ = false;
+    bool isPolarC = false;
+    //sequence generation members
+    float Cx = 0.f;
+    float Cyi = 0.f;
+    float Zx = 0.f;
+    float Zyi = 0.f;
+    float EXP = 2.f;
+    float Mutate = 0.f;
+
+    //sequence output members
+    int Xstep = 0;
+    int Ystep = 0;
+    int shiftOffset = 0;
+    int XshiftStep = 0;
+    int YshiftStep = 0;
+    int seqstart = 0;
+    int seqsize = ITERS;
+    int Xseqstep = 0;
+    int Yseqstep = 0;
+    float zoomSpread = 1.f;
+    float nowX = 0.f;
+    float nowY = 0.f;
+    float shiftnowX = 0.f;
+    float shiftnowY = 0.f;
+    float fractOffset = 0.f;
+
+    //estimated time calculations
+    float dtX = 0.f;
+    float dtY = 0.f;
+    float speedX = 0.f;
+    float speedY = 0.f;
+
+    //rack shit
+    rack::dsp::Timer timerX;
+    rack::dsp::Timer timerY;
+    rack::dsp::SchmittTrigger TriggerX;
+    rack::dsp::SchmittTrigger TriggerY;
+    rack::dsp::BooleanTrigger _EOCtrig;
+    rack::dsp::PulseGenerator _EOCpulse;
+    rack::dsp::SlewLimiter _slewlimitY{};
+    rack::dsp::SlewLimiter _slewlimitX{};
+    rack::dsp::TRCFilter<float> deClick;
+
+    std::thread SEQ;
+    std::mutex fracTex;
+    std::atomic<bool> Quitting{ false };
 
     PoppyModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(Z_X_PARAM, -1.8f, 1.8f, 0.f, "Z-X");
         configParam(Z_YI_PARAM, -1.8f, 1.8f, 0.f, "Z-Yi");
-        configParam(C_X_PARAM, -1.8f, 1.8f, 0.f, "C-X");
-        configParam(C_YI_PARAM, -1.8f, 1.8f, 0.f, "C-Yi");
+        configParam(C_X_PARAM, -2.f, 2.f, 0.f, "C-X");
+        configParam(C_YI_PARAM, -2.f, 2.f, 0.f, "C-Yi");
         configParam(EXP_X_PARAM, 1.75f, 5.f, 2.f, "Exponent-X");
-        configParam(ITERS_PARAM, 1.f, iters, 32.f, "Iterations");
+        configParam(ITERS_PARAM, 1.f, ITERS, 32.f, "Iterations");
         paramQuantities[ITERS_PARAM]->snapEnabled = true;
-        configParam(SEQ_START_PARAM, 0.f, iters, 0.f, "Start Point");
+        configParam(SEQ_START_PARAM, 0.f, ITERS, 0.f, "Start Point");
         paramQuantities[SEQ_START_PARAM]->snapEnabled = true;
         configParam(SHIFT_REGISTER_PARAM, 1.f, 4.f, 1.f, "Shift");
         paramQuantities[SHIFT_REGISTER_PARAM]->snapEnabled = true;
@@ -211,129 +328,35 @@ struct PoppyModule : Module
         configOutput(YSHIFT_CV_OUTPUT, "Y Shift Register CV Out");
         configOutput(Y_TRIG_OUTPUT, "Y trig Out");
         configOutput(AUX_OUTPUT, "Aux Out");
+
+
+    #include "Theme/setDefaultInit.h"
+
+        if (!SEQ.joinable()) SEQ = std::thread(&PoppyModule::createSequence, this);
+    }
+    ~PoppyModule() {
+        Quitting.store(true);
+        _ANYCHANGE.store(false);
+        if (SEQ.joinable()) SEQ.join();
     }
 
-    BaseFunctions Funct;
-    BaseButtons button;
-    brotPicker Brot;
-
-    int loopCounter = 0;
-
-    Brot_Pick brotType = Brot.chooseFractal(0);
-    //vectors being filled with sequence
-    std::vector<float> xCoord;
-    std::vector<float> yCoord;
-
-    //output ranges and bounding box for zoom
-    int range = 2;
-    int _range = 0;
-    int rangeY = 2;
-    int _rangeY = 0;   
-    float XplaceMin = -2;
-    float XplaceMax = 2;
-    float YplaceMin = -2;
-    float YplaceMax = 2;
-
-    //bools for connected ins  
-    bool inZxconnect = false;
-    bool inZyconnect = false;
-    bool inCxconnect = false;
-    bool inCyconnect = false;
-    bool inEXPconnect = false;  
-    bool inYClockconnect = false;
-    bool inReverseconnect = false;
-    bool inStartconnect = false;
-    bool inSizeconnect = false;
-    bool inResetconnect = false;
-    bool inslewX = false;
-    bool inslewY = false;
-   
-    //bools and ints for buttontypes    
-    bool auxbutton = false;
-    int auxType = 0;
-    bool fract = false;
-    int fractal = 0;
-    bool qual = false;
-    int quality = 0;
-    bool julia = false;
-    bool jul = false;   
-    bool reverse = false;
-    bool rev = false;
-    bool mirror = false;
-    bool mir = false;
-    bool invert = false;
-    bool inv = false;
-    bool reset = false;
-    bool res = false;
-    bool clockTapSet = false;
-    bool clockTapReset = false;
-    bool dirty = false;
-    bool dirtyonce = false;
-    bool CtoMove = false;
-    bool CM = false;
-    bool MovetoZ = false;
-    bool MZ = false;
     
-    //sequence generation members
-    float Cx = 0.f;
-    float Cyi = 0.f;
-    float Zx = 0.f;
-    float Zyi = 0.f;
-    float EXP = 2.f;
-    float Mutate = 0.f;
-
-    //sequence output members
-    int Xstep = 0;
-    int Ystep = 0;
-    int shiftOffset = 0;
-    int XshiftStep = 0;
-    int YshiftStep = 0;
-    int seqstart = 0;
-    int seqsize = iters;
-    int Xseqstep = 0;
-    int Yseqstep = 0;
-    float zoomSpread = 1.f;   
-    float nowX = 0.f;
-    float nowY = 0.f;
-    float shiftnowX = 0.f;
-    float shiftnowY = 0.f;
-    float fractOffset = 0.f;
-
-    //estimated time calculations
-    float dtX = 0.f;
-    float dtY = 0.f;
-    float speedX = 0.f;
-    float speedY = 0.f;
-
-    //rack shit
-    rack::dsp::Timer timerX;
-    rack::dsp::Timer timerY;
-    rack::dsp::SchmittTrigger TriggerX;
-    rack::dsp::SchmittTrigger TriggerY;
-    rack::dsp::BooleanTrigger _EOCtrig;
-    rack::dsp::PulseGenerator _EOCpulse;
-    rack::dsp::SlewLimiter _slewlimitY{};
-    rack::dsp::SlewLimiter _slewlimitX{};
-    rack::dsp::TRCFilter<float> deClick;
-
-    //used in Aux type == 1 : magnitude
-    float loosesqrt(float x) {
-        float g = x / 2.f;
-        for (int n = 0; n < 4; ++n) {
-            float gtemp = g;
-            g = (gtemp + (x / gtemp)) / 2.f;
-        }
-        return g;
-    }
+   
 
     void process(const ProcessArgs& args) override {
 
         if (loopCounter % 64 == 0) {
+            //fracTex.lock();
             connections(args);
             Lights(args);
+            //fracTex.unlock();
         }
-        if (loopCounter % 16 == 0) {            
-            createSequence(args);           
+        if (loopCounter % 16 == 0) {
+            //fracTex.lock();
+            combineParameters(args);
+            //this reeeeeally should eventually be tossed to a thread
+            //fracTex.unlock();
+            //createSequence();           
         }
         
         generateOutput(args);
@@ -467,107 +490,144 @@ struct PoppyModule : Module
 
         switch ((int)params[RANGE_SWITCH_PARAM].value) {
         case 0: {
-            range = 2;
-            _range = 0;
+            range = 2.f;
+            _range = 0.f;
             break;
         }
         case 1: {
-            range = 2;
-            _range = -2;
+            range = 2.f;
+            _range = -2.f;
             break;
         }
         case 2: {
-            range = 5;
-            _range = -5;
+            range = 5.f;
+            _range = -5.f;
             break;
         }
         }
 
         switch ((int)params[Y_RANGE_SWITCH_PARAM].value) {
         case 0: {
-            rangeY = 2;
-            _rangeY = 0;
+            rangeY = 2.f;
+            _rangeY = 0.f;
             break;
         }
         case 1: {
-            rangeY = 2;
-            _rangeY = -2;
+            rangeY = 2.f;
+            _rangeY = -2.f;
             break;
         }
         case 2: {
-            rangeY = 5;
-            _rangeY = -5;
+            rangeY = 5.f;
+            _rangeY = -5.f;
             break;
         }
         }
         deClick.setCutoffFreq(2000.f / args.sampleRate);
 
-        button.incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
-        button.incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
-        button.incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 4, &quality);
-        button.latchButton(params[JULIA_BUTTON_PARAM].value, &julia, &jul);
+
+        //this sets the actual fractal equation used
         brotType = Brot.chooseFractal(fractal);
     }
+    void combineParameters(const ProcessArgs& args) {
+
+        //need to only update sequence when parameters change, but OOOh so many of them
+        float movexpr = MOVEX;
+        float moveypr = MOVEY;
+        float zoompr = ZOOM;
+        float cxpr = Cx;
+        float cypr = Cyi;
+        float zxpr = Zx;
+        float zypr = Zyi;
+        float expr = EXP;
+        bool julpr = julia;
+        bool mirpr = mirror;
+        int fracpr = fractal;
+        int qualpr = quality;
+        // a bool is composed of these at the end
 
 
-    void createSequence(const ProcessArgs& args) {
-    
-        
-        button.latchButton(params[MIRROR_BUTTON_PARAM].value, &mirror, &mir);
-        button.latchButton(params[INVERT_BUTTON_PARAM].value, &invert, &inv);
-        button.momentButton(params[CLOCK_BUTTON_PARAM].value, &clockTapSet, &clockTapReset);      
-        button.momentButton(params[C_TO_MOVE_BUTTON_PARAM].value, &CtoMove, &CM);
-        button.momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
+        latchButton(params[MIRROR_BUTTON_PARAM].value, &mirror, &mir);
+        latchButton(params[INVERT_BUTTON_PARAM].value, &invert, &inv);
+        momentButton(params[CLOCK_BUTTON_PARAM].value, &clockTapSet, &clockTapReset);
+        momentButton(params[C_TO_MOVE_BUTTON_PARAM].value, &CtoMove, &CM);
+        momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
+
+        incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
+        incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
+        incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 4, &quality);
+        latchButton(params[JULIA_BUTTON_PARAM].value, &julia, &jul);
 
         if (inResetconnect) {
-            button.momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
+            momentButton(inputs[RESET_INPUT].getVoltage(0), &reset, &res);
         }
         else {
-            button.momentButton(params[RESET_BUTTON_PARAM].value, &reset, &res);
-        }
-   
-        if (inReverseconnect) {
-            bool reversegate = inputs[REVERSE_INPUT].getVoltage(0) > 1.f
-                || params[REVERSE_BUTTON_PARAM].value > 1.f;
-            button.latchButton(reversegate, &reverse, &rev);
-        }
-        else {
-            button.latchButton(params[REVERSE_BUTTON_PARAM].value, &reverse, &rev);
+            momentButton(params[RESET_BUTTON_PARAM].value, &reset, &res);
         }
 
-        shiftOffset = params[SHIFT_REGISTER_PARAM].value;
+        if (inReverseconnect) {
+            latchButton(inputs[REVERSE_INPUT].getVoltage(0), &reverse, &rev);
+        }
+        else {
+            latchButton(params[REVERSE_BUTTON_PARAM].value, &reverse, &rev);
+        }
 
         seqsize = params[ITERS_PARAM].value;
         if (inSizeconnect) {
-            seqsize = (int)Funct.lerp(1, iters, 0, 5, rack::math::clamp(inputs[SEQ_LENGTH_INPUT].getVoltage(0), 0.f, 5.f));
+            seqsize = lerp(1, ITERS, 0, 5, rack::math::clamp(int(inputs[SEQ_LENGTH_INPUT].getVoltage(0)), 0, 5));
             seqsize = seqsize > 1 ? seqsize : 1;
         }
         seqstart = params[SEQ_START_PARAM].value;
         if (inStartconnect) {
-            seqstart = (int)Funct.lerp(0, iters, 0, 5, rack::math::clamp(inputs[SEQ_START_INPUT].getVoltage(0), 0.f, 5.f));
+            seqstart = lerp(0, ITERS, 0, 5, rack::math::clamp(int(inputs[SEQ_START_INPUT].getVoltage(0)), 0, 5));
             seqstart = seqstart > 0 ? seqstart : 0;
         }
-        
-        
+        shiftOffset = params[SHIFT_REGISTER_PARAM].value;
         if (reset) {
             Xseqstep = 0;
             Yseqstep = 0;
         }
-        xCoord.clear();
-        yCoord.clear();
         
+
+        float EXPparam = params[EXP_X_PARAM].value;
+        float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.f;
+        EXP = EXPparam + EXPin;
+
+        float Zxpar = params[Z_X_PARAM].value;
+        float Zypar = params[Z_YI_PARAM].value;
+        float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0.f;
+        float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0.f;
+        Zx = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zxin) + Zxpar, -1.5f, 1.5f);
+        Zyi = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zyin) + Zypar, -1.5f, 1.5f);
+
         float Cxpar = params[C_X_PARAM].value;
         float Cypar = params[C_YI_PARAM].value;
-        float Cxloc = Funct.lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, Cxpar);
-        float Cyloc = Funct.lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, Cypar);
+        float Cxin = (inCxconnect) ? inputs[C_X_INPUT].getVoltage(0) / 5.f : 0.f;
+        float Cyin = (inCyconnect) ? -(inputs[C_YI_INPUT].getVoltage(0)) / 5.f : 0.f;
+        //default etch-a-sketch style cardinal
+        float CX = Cxin + Cxpar;
+        float CY = Cyin + Cypar;
+        //turn soil into polar knobs instead cuz circles are fun
+        if (isPolarC) {
+            float TY = CY * _PI;
+            TY = wrapFree(TY, -_PI, _PI);
+            PolartoCart(CX, TY, &CX, &CY);
+        }
+
+        float Cxcombo = lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, CX);
+        float Cycombo = lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, CY);
+        Cx = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
+        Cyi = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
+
         float CenterX = params[MOVE_X_PARAM].value;
         float CenterY = params[MOVE_YI_PARAM].value;
         //fun little adjustment check to move to actual fractal space location
-        if (CtoMove && ((Cyloc != CenterY) || (Cxloc != CenterX))) {
-            params[MOVE_X_PARAM].setValue(Cxloc);
-            params[MOVE_YI_PARAM].setValue(Cyloc);
-            params[C_X_PARAM].setValue(0.0);
-            params[C_YI_PARAM].setValue(0.0);
+        if (CtoMove && ((Cyi != CenterY) || (Cx != CenterX))) {
+            params[MOVE_X_PARAM].setValue(Cx);
+            params[MOVE_YI_PARAM].setValue(Cyi);
+            //zero soil knobs to retain location
+            params[C_X_PARAM].setValue(0.f);
+            params[C_YI_PARAM].setValue(0.f);
 
         }
         //this ones way easier
@@ -575,93 +635,135 @@ struct PoppyModule : Module
             params[Z_X_PARAM].setValue(CenterX);
             params[Z_YI_PARAM].setValue(CenterY);
         }
-        
-        float ZOOM = params[ZOOM_PARAM].value;
-        float MOVEX = params[MOVE_X_PARAM].value;
-        float MOVEY = params[MOVE_YI_PARAM].value;
 
-        XplaceMin = -2 / (ZOOM * ZOOM);
+        //update places after potential MOVE adjustment
+        ZOOM = params[ZOOM_PARAM].value;
+        MOVEX = params[MOVE_X_PARAM].value;
+        MOVEY = params[MOVE_YI_PARAM].value;
+        zoomSpread = ZOOM;
+        float zoomin = -2 / (ZOOM * ZOOM);
+        float zoomax = 2 / (ZOOM * ZOOM);
+        XplaceMin = zoomin;
         XplaceMin += MOVEX;
-        XplaceMax = 2 / (ZOOM * ZOOM);
+        XplaceMax = zoomax;
         XplaceMax += MOVEX;
-        YplaceMin = -2 / (ZOOM * ZOOM);
+        YplaceMin = zoomin;
         YplaceMin += MOVEY;
-        YplaceMax = 2 / (ZOOM * ZOOM);
+        YplaceMax = zoomax;
         YplaceMax += MOVEY;
 
-        float EXPparam = params[EXP_X_PARAM].value;
-        float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.0;
-        EXP = EXPparam + EXPin;
+        //check for any change in parameters that could result in a different sequence
+        //this also is necessary to tell when to draw the picture again
+        bool drawneeded = movexpr != MOVEX;
+        drawneeded |= moveypr != MOVEY;
+        drawneeded |= zoompr != ZOOM;;
+        drawneeded |= zxpr != Zx;
+        drawneeded |= zypr != Zyi;
+        drawneeded |= expr != EXP;
+        drawneeded |= julpr != julia;
+        drawneeded |= fracpr != fractal;
+     
+        bool allchange = drawneeded;
+        allchange |= cxpr != Cx;
+        allchange |= cypr != Cyi;
+        allchange |= mirpr != mirror;
+        //tell the worker that something changed
+        if(allchange) _ANYCHANGE.store(true);
 
-        float Cxin = (inCxconnect) ? inputs[C_X_INPUT].getVoltage(0) : 0.0;
-        float Cyin = (inCyconnect) ? -(inputs[C_YI_INPUT].getVoltage(0)) : 0.0;
-        float adderx = (inCxconnect) ? 6.f : 1.8f; // must interpolate differently for variance in size of input vs param
-        float addery = (inCyconnect) ? 6.f : 1.8f;
-        float Cxcombo = Funct.lerp(XplaceMin, XplaceMax, -adderx, adderx, Cxin + Cxpar);
-        float Cycombo = Funct.lerp(YplaceMin, YplaceMax, -addery, addery, Cyin + Cypar);
-        Cx = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
-        Cyi = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
-        
-        float Zxpar = params[Z_X_PARAM].value;
-        float Zypar = params[Z_YI_PARAM].value;
-        float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0;
-        float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0;
-        Zx = rack::math::clamp(Funct.lerp(-1.f, 1.f, -5, 5, Zxin) + Zxpar, -1.5f, 1.5f);
-        Zyi = rack::math::clamp(Funct.lerp(-1.f, 1.f, -5, 5, Zyin) + Zypar, -1.5f, 1.5f);
-              
-        if (mirror) {
-            Cyi = -Cyi;
-            Zyi = -Zyi;
-        }
+        drawneeded |= qualpr != quality;
+        //tell the widget it needs to calculate
+        if (drawneeded) _DRAWCHANGE.store(true);
 
-        std::complex<float>C(Cx, Cyi);
-        std::complex<float>Z(Zx, Zyi);
-
-        if (julia) {
-            std::complex<float>Zswap = Z;
-            Z = C;
-            C = Zswap;
-        }
-        
-        for (int i = 0; i <= iters; ++i) {
-            std::complex<float>pastVal = Z;
-            Z = brotType(EXP, C, pastVal);
-
-            if (abs(Z) > 2 || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
-                Z = std::complex<float>(Cx, Cyi);
-            }
-            xCoord.emplace_back(real(Z));
-            yCoord.emplace_back(imag(Z));
-        }
-
-        zoomSpread = params[ZOOM_PARAM].value;
 
         //making slew limiter RiseFall proportional to estimated time between clock pulses(speedX, speedY). 
         float smoothnessX = -(params[SLEW_X_PARAM].value) + 1;
         if (inslewX) {
-            float smooXput = Funct.lerp(0, 1, 0, 5, rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), 0.f, 5.f));
+            float smooXput = lerp(0.f, 1.f, 0.f, 5.f, rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), 0.f, 5.f));
             smoothnessX = ((smooXput > 0) ? smooXput : 0);
         }
-        _slewlimitX.setRiseFall(Funct.lerp(speedX, 20000, 0, 1, pow(smoothnessX, 4)), Funct.lerp(speedX, 20000, 0, 1, pow(smoothnessX, 4)));
+        _slewlimitX.setRiseFall(lerp(speedX, 20000.f, 0.f, 1.f, pow(smoothnessX, 4.f)), lerp(speedX, 20000.f, 0.f, 1.f, pow(smoothnessX, 4.f)));
         float smoothnessY = -(params[SLEW_Y_PARAM].value) + 1;
         if (inslewY) {
-            float smooYput = Funct.lerp(0, 1, 0, 5, rack::math::clamp(inputs[SLEW_Y_INPUT].getVoltage(0), 0.f, 5.f));
+            float smooYput = lerp(0.f, 1.f, 0.f, 5.f, rack::math::clamp(inputs[SLEW_Y_INPUT].getVoltage(0), 0.f, 5.f));
             smoothnessY = ((smooYput > 0) ? smooYput : 0);
         }
-        _slewlimitY.setRiseFall(Funct.lerp(speedY, 20000, 0, 1, pow(smoothnessY, 4)), Funct.lerp(speedY, 20000, 0, 1, pow(smoothnessY, 4)));
+        _slewlimitY.setRiseFall(lerp(speedY, 20000.f, 0.f, 1.f, pow(smoothnessY, 4.f)), lerp(speedY, 20000.f, 0.f, 1.f, pow(smoothnessY, 4.f)));
 
+    }
+
+    void createSequence() {
+        while (true) {
+
+            if (Quitting) return;
+
+            fracTex.lock();
+            
+
+            if (_ANYCHANGE) {
+                if (mirror) {
+                    Cyi = -Cyi;
+                    Zyi = -Zyi;
+                }
+
+                std::complex<float>C(Cx, Cyi);
+                std::complex<float>Z(Zx, Zyi);
+
+                if (julia) {
+                    std::complex<float>Zswap = Z;
+                    Z = C;
+                    C = Zswap;
+                }
+                for (int i = 0; i <= ITERS; ++i) {
+                    std::complex<float>pastVal = Z;
+                    Z = brotType(EXP, C, pastVal);
+                    if (abs(Z) <= 2.f) {
+                        xCoord[i] = (real(Z));
+                        yCoord[i] = (imag(Z));
+                    }
+                    else if (abs(Z) > 2.f || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
+                        //if it doesnt get to do any iterations, just copy in the C value
+                        if (i == 0) {
+                            for (int p = 0; p <= ITERS; ++p) {
+                                xCoord[p] = real(C);
+                                yCoord[p] = imag(C);
+                            }
+                        }
+                        else {
+                            //repeat instead of calculating, way lighter
+                            int q = 0;
+                            for (int p = i; p <= ITERS; ++p) {
+                                int rptind = q % i;
+                                xCoord[p] = xCoord[rptind];
+                                yCoord[p] = yCoord[rptind];
+                                ++q;
+                            }
+                        }
+                        break;
+
+                    }
+
+                }
+                _ANYCHANGE.store(false);
+            }
+            //when sequence is complete, wait for another change
+            
+            fracTex.unlock();
+            
+        }
     }
 
 
     void generateOutput(const ProcessArgs& args) {
      
-        //wrap any given sequence around the max size(iters)
-        Xstep = (Xseqstep + seqstart) % iters;
-        XshiftStep = (Xseqstep + seqstart - shiftOffset) % iters;
-        XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
-        Ystep = (Yseqstep + seqstart) % iters;
-        YshiftStep = (Yseqstep + seqstart - shiftOffset) % iters;
-        YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
+        //wrap any given sequence around the max size(ITERS)
+        int bX = (Xseqstep + seqstart);
+        Xstep = bX % ITERS;
+        XshiftStep = wraparound(bX - shiftOffset, ITERS);// (Xseqstep + seqstart - shiftOffset) % ITERS;
+        //XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
+        int bY = (Yseqstep + seqstart);
+        Ystep = bY % ITERS;
+        YshiftStep = wraparound(bY - shiftOffset, ITERS); // (Yseqstep + seqstart - shiftOffset) % ITERS;
+        //YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
 
         //lets get wierd with it
         if (!julia) {
@@ -682,7 +784,7 @@ struct PoppyModule : Module
             shiftValX = -shiftValX;
             shiftValY = -shiftValY;
         }
-        //Zooming in will spread outputs around 0
+        //Zooming in will spread outputs around middle of range
         float zoomFactor = 1.f + log10(zoomSpread);
         cvValX *= zoomFactor;
         cvValY *= zoomFactor;
@@ -697,7 +799,14 @@ struct PoppyModule : Module
         bool yClose = rack::math::isNear(yCoord[abs(Ystep - 1)], yCoord[Ystep], 0.0416f);
         if (yClose) {
             cvValY += 0.583333;
-
+        }
+        bool xSClose = rack::math::isNear(xCoord[abs(XshiftStep - 1)], xCoord[XshiftStep], 0.0416f);
+        if (xSClose) {
+            shiftValX += 0.583333;
+        }
+        bool ySClose = rack::math::isNear(yCoord[abs(YshiftStep - 1)], yCoord[YshiftStep], 0.0416f);
+        if (ySClose) {
+            shiftValY += 0.583333;
         }
 
 
@@ -726,17 +835,14 @@ struct PoppyModule : Module
             if (Xseqstep < 0) {
                 Xseqstep = seqsize;
             }
-            nowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX) + fractOffset;
-            shiftnowX = Funct.lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX) + fractOffset;
+            nowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX) + fractOffset;
+            shiftnowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX) + fractOffset;
             dtX = timestepX;
             timerX.reset();
         }
-        if (TriggerX.isHigh()) {
-            outputs[X_TRIG_OUTPUT].setVoltage(5.0f, 0);
-        }
-        else {
-            outputs[X_TRIG_OUTPUT].setVoltage(0.0f, 0);
-        }
+        outputs[X_TRIG_OUTPUT].setVoltage(TriggerX.isHigh() * 5.0f, 0);
+
+       
         speedX = 1.f / dtX;
 
         bool isY = TriggerY.process(yClock, 0.8f, 1.f);
@@ -755,17 +861,13 @@ struct PoppyModule : Module
             if (Yseqstep < 0) {
                 Yseqstep = seqsize;
             }
-            nowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY) + fractOffset;
-            shiftnowY = Funct.lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY) + fractOffset;
+            nowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY) + fractOffset;
+            shiftnowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY) + fractOffset;
             dtY = timestepY;
             timerY.reset();
         }
-        if (TriggerY.isHigh()) {
-            outputs[Y_TRIG_OUTPUT].setVoltage(5.0f, 0);
-        }
-        else {
-            outputs[Y_TRIG_OUTPUT].setVoltage(0.0f, 0);
-        }
+        outputs[Y_TRIG_OUTPUT].setVoltage(TriggerY.isHigh() * 5.0f, 0);
+
         speedY = 1.f / dtY;
 
             
@@ -801,12 +903,12 @@ struct PoppyModule : Module
         case 2: {
             float averageform  = 0.f;
             for (int a = seqstart; a < (seqstart + seqsize); ++a) {
-                averageform += xCoord[a % iters] + yCoord[a % iters];
+                averageform += xCoord[a % ITERS] + yCoord[a % ITERS];
             }
             averageform /= seqsize;
             deClick.process(averageform);
             averageform = deClick.lowpass();
-            float avelerp = Funct.lerp(_range, range, -2.f, 2.f, averageform);
+            float avelerp = lerp(_range, range, -2.f, 2.f, averageform);
             outputs[AUX_OUTPUT].setVoltage(avelerp, 0);
             break;
         }
@@ -822,17 +924,20 @@ struct PoppyModule : Module
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
-        json_t* VisualJ = json_integer(quality);
-        json_t* AuxJ = json_integer(auxType);
-        json_t* FractalJ = json_integer(fractal);
+        json_t* VisualJ = json_real(quality);
+        json_t* AuxJ = json_real(auxType);
+        json_t* FractalJ = json_real(fractal);
         json_t* JuliaJ = json_boolean(julia);
         json_t* panelJ = json_integer(currPanel);
+        json_t* polarJ = json_boolean(isPolarC);
+
 
         json_object_set_new(rootJ, "Visuals", VisualJ);
         json_object_set_new(rootJ, "AuxType", AuxJ);
         json_object_set_new(rootJ, "Fractal", FractalJ);
         json_object_set_new(rootJ, "Julia", JuliaJ);
         json_object_set_new(rootJ, "Panel", panelJ);
+        json_object_set_new(rootJ, "Polar", polarJ);
 
         return rootJ;
     }
@@ -843,19 +948,21 @@ struct PoppyModule : Module
         json_t* AuxJ = json_object_get(rootJ, "AuxType");
         json_t* VisualJ = json_object_get(rootJ, "Visuals");
         json_t* panelJ = json_object_get(rootJ, "Panel");
+        json_t* polarJ = json_object_get(rootJ, "Polar");
         if (FractalJ) {
-            fractal = json_integer_value(FractalJ);
+            fractal = json_real_value(FractalJ);
         }
         if (JuliaJ) {
             julia = json_boolean_value(JuliaJ);
         }
         if (AuxJ) {
-            auxType = json_integer_value(AuxJ);
+            auxType = json_real_value(AuxJ);
         }
         if (VisualJ) {
-            quality = json_integer_value(VisualJ);
+            quality = json_real_value(VisualJ);
         }
         if (panelJ) currPanel = json_integer_value(panelJ);
+        if (polarJ) isPolarC = json_boolean_value(polarJ);
     }
 
 };
@@ -886,57 +993,6 @@ public:
         this->Kvals[index * 4 + 3] = alpha;
     }
 
-    void HSLtoRGB255(float h, float s, float l, float* r, float* g, float* b)
-    {
-        if (h > 360.f) h -= 360.f;
-        float c = (1 - abs(2.f * l - 1)) * s;
-        float _h = h / 60.f;
-        float x = c * (1 - abs(fmod(_h, 2) - 1));
-        float m = l - (c / 2.f);
-        float R1 = 0;
-        float G1 = 0;
-        float B1 = 0;
-        if (_h >= 0 && _h < 1)
-        {
-            R1 = c;
-            G1 = x;
-            B1 = 0;
-        }
-        else if (_h >= 1 && _h < 2)
-        {
-            R1 = x;
-            G1 = c;
-            B1 = 0;
-        }
-        else if (_h >= 2 && _h < 3)
-        {
-            R1 = 0;
-            G1 = c;
-            B1 = x;
-        }
-        else if (_h >= 3 && _h < 4)
-        {
-            R1 = 0;
-            G1 = x;
-            B1 = c;
-        }
-        else if (_h >= 4 && _h < 5)
-        {
-            R1 = x;
-            G1 = 0;
-            B1 = c;
-        }
-        else if (_h >= 5 && _h < 6)
-        {
-            R1 = c;
-            G1 = 0;
-            B1 = x;
-        }
-        *r = (R1 + m) * 255;
-        *g = (G1 + m) * 255;
-        *b = (B1 + m) * 255;
-    }
-
 
     ~picture() {
         delete[] this->Kvals;
@@ -951,7 +1007,7 @@ struct FracWidgetBuffer : FramebufferWidget {
         
     }
     void step() override {
-        //trying to only refresh the screen every half a second. DOESNT WORK
+        //trying to only refresh the screen every so often. DOESNT WORK
         /*if (Fracking->dirty) {
             FramebufferWidget::setDirty(true);
             Fracking->dirty = false;
@@ -963,9 +1019,37 @@ struct FracWidgetBuffer : FramebufferWidget {
     }
     
 };
+//someday im gonna do openGL i swear
+//struct GLFracWidget : OpenGlWidget {
+//    brotPicker Brot;
+//    PoppyModule* Fracking;
+//    bool isWindowOpen;
+//    GLFracWidget(PoppyModule* module, Vec topLeft) {
+//        Fracking = module;
+//        box.pos = topLeft;
+//        isWindowOpen = true;
+//    }
+//
+//    void drawFrac(void) {
+//
+//    }
+//
+//    void drawFramebuffer() override
+//    {
+//        glViewport(0.0, 0.0, getFramebufferSize().x, getFramebufferSize().y);
+//        glClearColor(0.0, 0.0, 0.0, 1.0);
+//        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+//
+//        glMatrixMode(GL_PROJECTION);
+//        glLoadIdentity();
+//        glOrtho(0, 600, 0, 600, -1, 1);
+//        displayParticles();
+//        glEnd();
+//    }
+//};
+
 
 struct FracWidget : Widget {
-    BaseFunctions Funct;
     brotPicker Brot;
     PoppyModule* Fracking;
     picture* pic;
@@ -986,12 +1070,12 @@ struct FracWidget : Widget {
     ~FracWidget() {
         if (pic) delete pic;
     }
-    
+
+    //needed when dealing with image handles and a closeable window in a DAW
     void onContextCreate(const ContextCreateEvent& e) override {
         isWindowOpen = true;
         //onContextCreate(e);
     }
-
     void onContextDestroy(const ContextDestroyEvent& e) override
     {
         if (pictureColor != -1) {
@@ -1002,6 +1086,7 @@ struct FracWidget : Widget {
         isWindowOpen = false;
        // onContextDestroy(e);
     }
+
     void drawLayer(const DrawArgs& args, int layer) override {
         Brot_Pick chosenBrot;
         drawboxX = box.size.x;
@@ -1035,7 +1120,8 @@ struct FracWidget : Widget {
             if (Fracking->quality == 0) {
                 pic->Empty();
             }
-            if(Fracking->quality != 0 && frames % 8 == 0){
+            //if we're drawing the fractal, wait for a change to happen AND only every 8 frames to update
+            if(Fracking->quality != 0 && (frames % 8 == 0 && Fracking->_DRAWCHANGE)){
                 /*filling screenbuffer with RGBA values*/
                 pic->Empty();
                 int centerX = drawboxX * 0.5;
@@ -1052,8 +1138,8 @@ struct FracWidget : Widget {
                         float distFromCenter = (abs(centerX - l) + abs(centerY - j)) / (float)(centerX + centerY);
                         distFromCenter = (-distFromCenter) + 1.f; //normalize then invert for central glow
                         std::complex<float>Z(ZparX, ZparY);
-                        float ilerp = Funct.lerp(xdrawMin, xdrawMax, 0, drawboxX, l);
-                        float jlerp = Funct.lerp(ydrawMin, ydrawMax, 0, drawboxY, j);
+                        float ilerp = lerp(xdrawMin, xdrawMax, 0.f, (float)drawboxX, (float)l);
+                        float jlerp = lerp(ydrawMin, ydrawMax, 0.f, (float)drawboxY, (float)j);
                         std::complex<float>C(ilerp, jlerp);
 
                         float expo = Fracking->EXP;
@@ -1073,20 +1159,22 @@ struct FracWidget : Widget {
                             if (abs(Z) > 2.f) break;
 
                             //just don draw so many dots ok?
-                            if (Fracking->quality == 3 && (k > 6 && j % 4 == 0 && l % 4 == 0)) {                       
-                                int Xloc = rack::math::clamp((int)Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, real(Z)), 1, drawboxX - 1);
-                                int Yloc = rack::math::clamp((int)Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, imag(Z)), 1, drawboxY - 1);
-                                int Zpixindex = Yloc * drawboxX + Xloc;
-                                float redadd = _red;
-                                float greadd = _gre;
-                                float bluadd = _blu;
-                                float alpadd = _alp;
-                                pic->HSLtoRGB255(30 * (k % 10), abs(Z) * 0.5f, 0.5f, &_red, &_gre, &_blu);
-                                redadd = ((int)_red >> 8 == 1) ? 0 : _red + redadd;
-                                greadd += _gre;
-                                bluadd += _blu;
-                                _alp = (_alp > 150) ? 150 : _alp + 10;
-                                pic->MakeColor(Zpixindex, redadd, greadd, bluadd, _alp);
+                            if (Fracking->quality == 3 && (k > 8 && j % 2 == 0 /*&& l % 4 == 0*/)) {                       
+                                int Xloc = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, real(Z));
+                                int Yloc = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, imag(Z));
+                                if (Xloc > 10 && Xloc < drawboxX - 10 && Yloc > 10 && Yloc < drawboxY - 10) {
+                                    int Zpixindex = Yloc * drawboxX + Xloc;
+                                    float redadd = _red;
+                                    float greadd = _gre;
+                                    float bluadd = _blu;
+
+                                    Components::HSLtoRGB(30 * (k % 10), /*abs(Z) **/ 0.5f, 0.5f, &_red, &_gre, &_blu);
+                                    redadd = _red;
+                                    greadd = _gre;
+                                    bluadd = _blu;
+                                    _alp = (_alp > 150) ? 150 : _alp + 5;
+                                    pic->MakeColor(Zpixindex, redadd, greadd, bluadd, _alp);
+                                }
                             }
                         }
 
@@ -1095,13 +1183,13 @@ struct FracWidget : Widget {
                         
 
                         if (Fracking->quality == 1) {
-                            pic->HSLtoRGB255(300, 0.1, (float)(k / iteras) * distFromCenter, &_red, &_gre, &_blu);
+                            Components::HSLtoRGB(300, 0.1, (float)(k / iteras) * distFromCenter, &_red, &_gre, &_blu);
                             pic->MakeColor(index, _red, _gre, _blu, 200.f);
                             
                         }
                         else if (Fracking->quality == 2) {
                             float colorval = ((k <= iteras - 1) ? 280 - pow(2.f, k * 0.75) : abs(Z - Ztemp) * 30.f);
-                            pic->HSLtoRGB255(colorval, 0.8 * distFromCenter, 0.5, &_red, &_gre, &_blu);
+                            Components::HSLtoRGB(colorval, 0.8 * distFromCenter, 0.5, &_red, &_gre, &_blu);
                             pic->MakeColor(index, _red, _gre, _blu, 200.f);
                             
                         }
@@ -1109,6 +1197,7 @@ struct FracWidget : Widget {
                     }
                 }
                 frames = 0;
+                Fracking->_DRAWCHANGE.store(false);
             }
             ++frames;
             
@@ -1123,17 +1212,17 @@ struct FracWidget : Widget {
             /*the lines of the sequence itself, and tracking square*/
             nvgFillColor(args.vg, nvgRGBAf(0.4, 0.86, 1.0, 0.46));
             nvgBeginPath(args.vg);
-            float Crectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->Cx);
-            float Crecty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->Cyi);
+            float Crectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->Cx);
+            float Crecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->Cyi);
 
             nvgRect(args.vg, Crectx - 2, Crecty - 2, 4, 4);
             nvgFill(args.vg);
             for (int d = Fracking->seqstart; d < (Fracking->seqsize + Fracking->seqstart); ++d) {
-                int draw = d % Fracking->iters;
-                float rectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[draw]);
-                float recty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[draw]);
-                float Nrectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[abs(draw - 1)]);
-                float Nrecty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[abs(draw - 1)]);
+                int draw = d % ITERS;
+                float rectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[draw]);
+                float recty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[draw]);
+                float Nrectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[abs(draw - 1)]);
+                float Nrecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[abs(draw - 1)]);
                 
                 nvgBeginPath(args.vg);
                 nvgMoveTo(args.vg, Nrectx, Nrecty);
@@ -1145,8 +1234,8 @@ struct FracWidget : Widget {
             }
             nvgFillColor(args.vg, nvgRGBAf(0.36, 1.0, 0.65, 0.18));
             nvgBeginPath(args.vg);
-            float Seqrectx = Funct.lerp(0, drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[(Fracking->Xstep - 1) > 0 ? Fracking->Xstep - 1 : 0]);
-            float Seqrecty = Funct.lerp(0, drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[(Fracking->Ystep - 1) > 0 ? Fracking->Ystep - 1 : 0]);
+            float Seqrectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[(Fracking->Xstep - 1) > 0 ? Fracking->Xstep - 1 : 0]);
+            float Seqrecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[(Fracking->Ystep - 1) > 0 ? Fracking->Ystep - 1 : 0]);
           
             nvgRect(args.vg, Seqrectx - 3, Seqrecty - 3, 6, 6);
             nvgFill(args.vg);
@@ -1157,7 +1246,10 @@ struct FracWidget : Widget {
     }
 };
 
+using namespace LydD::Components;
 struct PoppyWidget : ModuleWidget {
+    //include struct for logo here so it has modules name
+    #include "Theme/LogoLight.h"
     //name for panel file, same name for every type
     std::string panel;
 
@@ -1241,7 +1333,13 @@ struct PoppyWidget : ModuleWidget {
             FracWidget* myWidget = new FracWidget(module, Vec(70, 30));
             myWidget->setSize(Vec(160, 120));
             
-            FracBuffer->addChild(myWidget);                      
+            FracBuffer->addChild(myWidget);         
+
+            //must be called 'logoPos'for all modules 
+            Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);
+            PoppyModule* module = dynamic_cast<PoppyModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h"
         }        
     }    
 
@@ -1251,12 +1349,24 @@ struct PoppyWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         PoppyModule* module = dynamic_cast<PoppyModule*>(this->module);
         assert(module);
+       
+        menu->addChild(new MenuSeparator());
 
+        //wow checkbox lambdas, how unique
+        menu->addChild(createCheckMenuItem("Soil as Polar", "Outer[X] becomes Radius, Inner[Y] becomes Angle",
+                [=]() {return module->isPolarC != false; },
+                [=]() {module->isPolarC ^= true; }
+            ));
+
+        menu->addChild(new MenuSeparator());
+
+        //create named shell for list of panel options
         #include "Theme/CreatePanelMenu.h"
     }
 
     void step() override {
         if (module) {
+            
             //change panel 
         #include "Theme/UpdatePanel.h"
         }

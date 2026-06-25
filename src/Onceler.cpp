@@ -1,9 +1,10 @@
 #include "plugin.hpp"
-#include <vector>
-#include <string>
 
 #define MODULE_NAME OncelerModule
 #define PANEL "Onceler_panel.svg"
+#define HP 10
+
+using namespace LydD;
 
 static const int maxPolyphony = 1;
 
@@ -137,8 +138,8 @@ struct OncelerModule : Module
 
         ENUMS(CHOP_OUTPUTS, 4),
         ENUMS(TALK_OUTPUTS, 4),
-        DEBUG_OUT1,
-        DEBUG_OUT2,
+        /*DEBUG_OUT1,
+        DEBUG_OUT2,*/
         NUM_OUTPUTS
 	};
 	enum LightIds {
@@ -146,8 +147,6 @@ struct OncelerModule : Module
         NUM_LIGHTS
     };
 
-    BaseFunctions Functions;
-    BaseButtons Buttons;
     Oneder Trees[4];
 
     #include "Theme/PanelVars.h"
@@ -191,6 +190,7 @@ struct OncelerModule : Module
             configOutput(TALK_OUTPUTS + i, talkCount);
         }
 
+    #include "Theme/setDefaultInit.h"
     }
 
     int currentPolyphony = 1;
@@ -205,8 +205,8 @@ struct OncelerModule : Module
     bool isinWaits[4]{ false };
     bool redont[4]{ false };
     bool holdTypeSet[4]{ false };
-    bool update[4]{ false };
     int holdType[4]{ 0 };
+    bool update[4]{ false };
     int cutPar[4]{ 1 };
     int waitPar[4]{ 1 };
     float Cutting[4]{ 0 };
@@ -237,8 +237,8 @@ struct OncelerModule : Module
         }
 
         for (int i = 0; i < 4; ++i) {
-            Buttons.incrementButton(params[HOLDT_BUTTON_PARAMS + i].value, &holdTypeSet[i], 7, &holdType[i]);
-            switch (holdType[i]) {
+            incrementButton(params[HOLDT_BUTTON_PARAMS + i].value, &holdTypeSet[i], 7, &holdType[i]);
+            switch ((int)holdType[i]) {
             case 0: {
                 paramQuantities[HOLDT_BUTTON_PARAMS + i]->name = "Hold For _";
                 break;
@@ -304,11 +304,11 @@ struct OncelerModule : Module
             Cutting[i] = cutPar[i];
             Waiting[i] = waitPar[i];
             if (isinCuts[i]) {
-                float cutIn = Functions.lerp(0.f, 15.f, 0.f, 10.f, abs(inputs[CUTS_INPUTS + i].getVoltage(0)));
+                float cutIn = lerp(0.f, 15.f, 0.f, 10.f, abs(inputs[CUTS_INPUTS + i].getVoltage(0)));
                 Cutting[i] = rack::math::clamp(cutPar[i] + cutIn, 1.f, 16.f);
             }
             if (isinWaits[i]) {
-                float waitIn = Functions.lerp(0.f, 15.f, 0.f, 10.f, abs(inputs[WAIT_INPUTS + i].getVoltage(0)));
+                float waitIn = lerp(0.f, 15.f, 0.f, 10.f, abs(inputs[WAIT_INPUTS + i].getVoltage(0)));
                 Waiting[i] = rack::math::clamp(waitPar[i] + waitIn, 1.f, 16.f);
             }
            
@@ -337,13 +337,13 @@ struct OncelerModule : Module
             outputs[TALK_OUTPUTS + i].setVoltage(speakIn * talkOut, 0);
             outputs[CHOP_OUTPUTS + i].setVoltage(stumpOut[i] * 10.f, 0);
         }
-        outputs[DEBUG_OUT1].setVoltage(Trees[0].isHit, 0);
-        outputs[DEBUG_OUT2].setVoltage(Trees[0].Cuts, 0);
+        /*outputs[DEBUG_OUT1].setVoltage(Trees[0].isHit, 0);
+        outputs[DEBUG_OUT2].setVoltage(Trees[0].Cuts, 0);*/
     }
 
     void doLights(const ProcessArgs& args) {
         for (int h = HOLD_LIGHTS + 0; h < NUM_LIGHTS; h += 3) {
-            switch (holdType[h / 3]) {
+            switch ((int)holdType[h / 3]) {
             case 0: {
                 lights[h].setBrightness(0.94f);
                 lights[h + 1].setBrightness(0.01f);
@@ -435,6 +435,7 @@ struct OncelerDisplay : DigitalDisplay {
 
 
 struct OnceWidget : OncelerDisplay {
+    //this BLOO has been used a couple times. when i have more custom colors ill make a space for em
     const NVGcolor BLOO = nvgRGB(0x00, 0xaa, 0xff);
     OncelerModule* module;
     int flag = 0;
@@ -458,7 +459,7 @@ struct OnceWidget : OncelerDisplay {
     }
 };
 
-
+using namespace LydD::Components;
 struct OncelerPanelWidget : ModuleWidget {
 
     #include "Theme/LogoLight.h"
@@ -476,7 +477,6 @@ struct OncelerPanelWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 365)));
-
 
         float distY = 84;
 
@@ -501,12 +501,10 @@ struct OncelerPanelWidget : ModuleWidget {
         float lightX = 127;
         float lightY = 97;
 
-
         for (int i = 0; i < 12; i += 3) {
             addChild(createLightCentered<SmallLight<RedGreenBlueLight>>(Vec(lightX, lightY + (distY * (i / 3))), module, OncelerModule::HOLD_LIGHTS + i));
 
         }
-
         
         for (int i = 0; i < 4; ++i) {
             addInput(createInput<PurplePort>(Vec(axeX, row1Y + (i * distY)), module, OncelerModule::AXE_INPUTS + i));
@@ -524,12 +522,8 @@ struct OncelerPanelWidget : ModuleWidget {
             addOutput(createOutput<PurplePort>(Vec(treeX, row2Y + (i * distY)), module, OncelerModule::TALK_OUTPUTS + i));
         }
 
-        addOutput(createOutput<PurplePort>(Vec(60, 360), module, OncelerModule::DEBUG_OUT1));
-        addOutput(createOutput<PurplePort>(Vec(90, 360), module, OncelerModule::DEBUG_OUT2));
-
-      
-
-
+        /*addOutput(createOutput<PurplePort>(Vec(60, 360), module, OncelerModule::DEBUG_OUT1));
+        addOutput(createOutput<PurplePort>(Vec(90, 360), module, OncelerModule::DEBUG_OUT2));*/
         if (module) {
 
             OnceWidget* O1Widget = createWidget<OnceWidget>((Vec(digitX, digitY)));
@@ -560,6 +554,11 @@ struct OncelerPanelWidget : ModuleWidget {
             O4Widget->module = module;
             addChild(O4Widget);
 
+            //must be called 'logoPos'for all modules
+            Vec logoPos = Vec(((15.f * HP) / 3.5f) - 12.5, 363.f);
+            OncelerModule* module = dynamic_cast<OncelerModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h" 
         }
       
     }

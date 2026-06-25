@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="150"
+   height="380"
+   viewBox="0 0 39.6875 100.54167"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   sodipodi:docname="Purple.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="0.5460527"
+     inkscape:cx="7.3253003"
+     inkscape:cy="390.07224"
+     inkscape:window-width="1147"
+     inkscape:window-height="1032"
+     inkscape:window-x="136"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient1"
+       id="linearGradient26-9"
+       x1="12.719355"
+       y1="226.93968"
+       x2="107.28065"
+       y2="153.06032"
+       gradientUnits="userSpaceOnUse"
+       spreadMethod="reflect"
+       gradientTransform="scale(0.33072918,0.26458333)" />
+    <linearGradient
+       id="linearGradient1"
+       inkscape:collect="always">
+      <stop
+         style="stop-color:#2c0c54;stop-opacity:1;"
+         offset="0.13031161"
+         id="stop21-4" />
+      <stop
+         style="stop-color:#160026;stop-opacity:1;"
+         offset="1"
+         id="stop26-8" />
+    </linearGradient>
+  </defs>
+  <g
+     inkscape:label="Purple_Blank"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       width="39.6875"
+       height="100.54166"
+       style="display:inline;fill:url(#linearGradient26-9);fill-opacity:1;stroke-width:2.07069px;stroke-linecap:round"
+       id="rect3"
+       x="0"
+       y="0"
+       inkscape:label="Purple_BG" />
+  </g>
+</svg>

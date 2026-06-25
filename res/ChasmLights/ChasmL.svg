@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="54"
+   height="30.5"
+   viewBox="0 0 14.2875 8.0697919"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   sodipodi:docname="CanWallL.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="8.1336329"
+     inkscape:cx="23.790107"
+     inkscape:cy="30.367734"
+     inkscape:window-width="1147"
+     inkscape:window-height="1032"
+     inkscape:window-x="509"
+     inkscape:window-y="7"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="matrix(0.27559643,0,0,0.27988982,-0.27559643,-0.38266186)">
+    <g
+       id="g91"
+       inkscape:label="wallL"
+       style="display:inline;stroke:none;stroke-opacity:1;fill:#e8e8e8;fill-opacity:0.77672958"
+       transform="matrix(0.96003907,0,0,0.94531248,1.0300013,-129.38281)">
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 0.09374995,148.19209 9.44189615,-1.06663 7.4643529,-1.27712 2.75,1.5 2.75,-1.25 h 4.5 l 6.749999,3.25 2.75,-0.75 2.75,1 h 5.5 l 3.5,-2.25 4.749999,-2 0.625,1.5 -1.125,0.25 -4.249999,1.875 -3,2.375 -5.5,-0.625 -2.875,-0.625 -1.625,-0.375 -1.25,1 -4.999999,-1.375 -3,-1.375 -4,1.375 -2.59375,0.0937 -3.6875,-1.6875 -4.34375,0.15625 c 0,0 -4.8627878,0.21418 -5.1647835,0.21607 -0.1327786,8.3e-4 -5.91148798,0.79894 -6.24146554,0.90893"
+         id="path61"
+         sodipodi:nodetypes="ccccccccccccccccccccccccccsc" />
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 52.767841,146.98981 -0.972272,4.5962 1.502602,7.15945 0.08839,4.5962 -1.149048,5.3033 0.353553,-5.12652 -0.08839,-4.94975 -1.502602,-6.8059 1.06066,-4.5962"
+         id="path71" />
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 46.669045,150.34857 -1.679378,5.48008 0.353553,6.01041 -0.795495,-6.01041 1.237437,-5.12652"
+         id="path78" />
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 36.415997,149.99502 -0.972271,2.65165 0.883883,0.61872 -1.06066,7.07106 0.883883,5.30331 -0.53033,-5.21492 1.06066,-7.15945 -0.353553,-1.06066 0.795495,-2.20971"
+         id="path84" />
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 21.499999,149.49999 -0.4375,4.4375 0.875,9.25 -0.4375,-9.125 0.6875,-4.875"
+         id="path86" />
+      <path
+         style="opacity:1;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 8.3124996,148.12499 -1.1249999,2.0625 1.0624999,2.125 -2.4999999,4.5 v 1.8125 l -1.4999999,8.5 1.8749999,-8.375 v -1.75 l 1.1874999,-1.9375 h 0.75 l -0.0625,-1.3125 1.0625,-1.75 -1.0625,-1.75 1.0625,-2.3125"
+         id="path90" />
+      <path
+         style="display:inline;opacity:0.48718;fill:#e8e8e8;stroke:none;stroke-width:0.205;stroke-linecap:round;stroke-opacity:1;paint-order:markers stroke fill;fill-opacity:0.77672958"
+         d="m 52.767841,145.48721 -3.623922,-1.14905 -7.689786,0.61872 -10.076271,-2.65165 -3.535534,-3.8007 -10.518213,2.47488 c 0,0 -6.36396,-2.47488 -7.6897856,-2.65165 C 8.3085043,138.15098 0,139.74197 0,139.74197 v 0.97227 l 8.6620576,-1.76776 3.2703684,0.7071 5.656854,1.85616 10.076271,-2.38649 3.093592,3.09359 1.149049,0.70711 10.076271,2.56326 7.513009,-0.79549 2.651651,1.06066"
+         id="path149" />
+    </g>
+  </g>
+</svg>

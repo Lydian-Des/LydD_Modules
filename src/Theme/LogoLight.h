@@ -6,6 +6,10 @@ struct LogoLight : SvgWidget {
 
     }
 
+    NVGcolor uintTOnvg(unsigned int svgcol) {
+        return nvgRGBA(svgcol & 0xff, (svgcol >> 8) & 0xff, (svgcol >> 16) & 0xff, (svgcol >> 24) & 0xff);
+    }
+
     void drawLayer(const DrawArgs& args, int layer) override {
 
         nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
@@ -13,7 +17,8 @@ struct LogoLight : SvgWidget {
         if (this->module && layer == 1) {
             for (auto s = svg->handle->shapes; s; s = s->next) {
                 nvgStrokeWidth(args.vg, (s->strokeWidth));
-                nvgFillColor(args.vg, nvgHSL(0.3f, 0.8f, 0.6f));
+                nvgStrokeColor(args.vg, uintTOnvg(s->stroke.color));
+                nvgFillColor(args.vg, uintTOnvg(s->fill.color));
                 for (auto p = s->paths; p; p = p->next) {
                     nvgBeginPath(args.vg);
                     nvgMoveTo(args.vg, p->pts[0], p->pts[1]);

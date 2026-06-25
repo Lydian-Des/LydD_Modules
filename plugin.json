@@ -64,6 +64,36 @@
 			"name": "Shear",
 			"description": "IIR Comb Filter",
 			"tags": [ "Filter", "Effect" ]
+		},
+		{
+			"slug": "Master-Switch",
+			"name": "Domain",
+			"description": "Switch",
+			"tags": [ "Utility", "Switch" ]
+		},
+		{
+			"slug": "Hex-Quantizer",
+			"name": "Quantizer",
+			"description": "Quantizer",
+			"tags": [ "VCO", "LFO" ]
+		},
+		{
+			"slug": "Reflector",
+			"name": "Reflection",
+			"description": "Window Folder",
+			"tags": [ "Utility" ]
+		},
+		{
+			"slug": "Canyon-Echo",
+			"name": "Canyon",
+			"description": "Dual/Stereo Delay",
+			"tags": [ "Effect", "Delay" ]
+		},
+		{
+			"slug": "Seethe-Distort",
+			"name": "Seethe",
+			"description": "Saturation",
+			"tags": [ "Effect", "Distortion" ]
 		}
 
 	]

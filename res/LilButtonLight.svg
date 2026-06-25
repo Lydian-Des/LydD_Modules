@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="20"
+   height="20"
+   viewBox="0 0 5.2916668 5.2916668"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   sodipodi:docname="LilButtonLight.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="32.534532"
+     inkscape:cx="15.183867"
+     inkscape:cy="9.0211841"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="-8"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="matrix(0.10900141,0,0,0.11044876,-0.07930838,-0.11538561)">
+    <g
+       id="ellipse2">
+      <path
+         style="fill:#000000;fill-opacity:0.0672897;paint-order:markers stroke fill"
+         d="M 25,3.4492188 C 12.918327,3.4492188 3.0820313,13.100204 3.0820313,25 3.0820313,36.899796 12.918327,46.550781 25,46.550781 37.081673,46.550781 46.919922,36.899796 46.919922,25 46.919922,13.100204 37.081673,3.4492188 25,3.4492188 Z m 0,2.2324218 C 35.896192,5.6816406 44.685547,14.32881 44.685547,25 44.685547,35.67119 35.896192,44.316406 25,44.316406 14.103808,44.316406 5.3144531,35.67119 5.3144531,25 5.3144531,14.32881 14.103808,5.6816406 25,5.6816406 Z"
+         id="path11" />
+      <path
+         style="fill:#000000;fill-opacity:0.291589;paint-order:markers stroke fill"
+         d="M 45.802925,24.999596 A 20.802553,20.434193 0 0 1 25.000372,45.433788 20.802553,20.434193 0 0 1 4.1978188,24.999596 20.802553,20.434193 0 0 1 25.000372,4.565403 20.802553,20.434193 0 0 1 45.802925,24.999596 Z"
+         id="path12" />
+    </g>
+  </g>
+</svg>

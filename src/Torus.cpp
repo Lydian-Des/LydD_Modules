@@ -1,9 +1,11 @@
 #include "plugin.hpp"
-#include <vector>
 
 #define MODULE_NAME TorusModule
 #define PANEL "Torus_panel.svg"
+#define HP 16
 
+using namespace LydD;
+using namespace LydD::Matrix;
 static const int maxPolyphony = 1;
 
 static rack::simd::float_4 Zero{ 0.f };
@@ -131,9 +133,6 @@ struct PathEquate {
 struct TorusModule : Module
 {
     Follow* follow;
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-    BaseMatrices Matrix;
     PathEquate Paths;
 
 
@@ -210,6 +209,8 @@ struct TorusModule : Module
         configOutput(Z_OUTPUT, "Z-Axis");
         
         follow = new(Follow);
+
+    #include "Theme/setDefaultInit.h"
     }
     
     ~TorusModule() {
@@ -320,13 +321,13 @@ struct TorusModule : Module
             outputs[o].setChannels(1);
         }
 
-        Buttons.latchButton(params[LFO1_BUTTON_PARAM].value, &LFOmode1, &LFO1not);
-        Buttons.latchButton(params[LFO2_BUTTON_PARAM].value, &LFOmode2, &LFO2not);
-        Buttons.latchButton(params[FOLLOW_BUTTON_PARAM].value, &LFOllow, &LFOlnot);
+        latchButton(params[LFO1_BUTTON_PARAM].value, &LFOmode1, &LFO1not);
+        latchButton(params[LFO2_BUTTON_PARAM].value, &LFOmode2, &LFO2not);
+        latchButton(params[FOLLOW_BUTTON_PARAM].value, &LFOllow, &LFOlnot);
         isinsync = inputs[SYNC_INPUT].isConnected();
 
         equation = (int)params[EQUATION_SWITCH_PARAM].value;
-        rdiff = params[R_DIFF_PARAM].value + ((inputs[R_DIFF_INPUT].isConnected()) ? Functions.lerp(-10.f, 45.f, -5.f, 5.f, inputs[R_DIFF_INPUT].getVoltage(0)) : 0.f);
+        rdiff = params[R_DIFF_PARAM].value + ((inputs[R_DIFF_INPUT].isConnected()) ? lerp(-10.f, 45.f, -5.f, 5.f, inputs[R_DIFF_INPUT].getVoltage(0)) : 0.f);
         rdiff = rack::math::clamp(rdiff, -10.f, 45.f);
         r = R - rdiff;
     
@@ -343,12 +344,12 @@ struct TorusModule : Module
         float bigpitchpar = params[BIG_PITCH_PARAM].value / 12.f;
         float bigpitchin = inputs[BIG_PITCH_INPUT].getVoltage(0);
         float bigpitch = (inputs[BIG_PITCH_INPUT].isConnected()) ? bigpitchpar + bigpitchin : bigpitchpar;
-        tPitch = Functions.VoltToFreq(bigpitch, 0.0, refFreq);
+        tPitch = VoltToFreq(bigpitch, 0.0, refFreq);
 
         float lilpitchpar = params[LITTLE_PITCH_PARAM].value / 12.f;
         float lilpitchin = inputs[LITTLE_PITCH_INPUT].getVoltage(0);
         float lilpitch = (inputs[LITTLE_PITCH_INPUT].isConnected()) ? lilpitchpar + lilpitchin : lilpitchpar;
-        nPitch = (LFOllow) ? Functions.VoltToFreq(lilpitch + bigpitch, 0.0, refFreq) : Functions.VoltToFreq(lilpitch, 0.0, refFreq);
+        nPitch = (LFOllow) ? VoltToFreq(lilpitch + bigpitch, 0.0, refFreq) : VoltToFreq(lilpitch, 0.0, refFreq);
         
         float tDetune = (tPitch * (detune / 12.f)) / 5.f;
         float nDetune = (nPitch * (detune / 12.f)) / 5.f;
@@ -366,7 +367,7 @@ struct TorusModule : Module
         drivepar = params[DRIVE_PARAM].value;
         drivetype = (int)params[DRIVETYPE_SWITCH_PARAM].value;
     }
-
+    //have made better reflector, will integrate into namespaces
     rack::simd::float_4 reflect(float lowlim, float uplim, rack::simd::float_4 Val) {
         rack::simd::float_4 isup = Val > uplim;
         rack::simd::float_4 islow = Val < lowlim;
@@ -390,24 +391,25 @@ struct TorusModule : Module
             tPhases = Zero;
             nPhases = Zero;
         }
-        Functions.incrementPhase(tPitches, args.sampleRate, &tPhases, 48.f * PI);
-        Functions.incrementPhase(nPitches, args.sampleRate, &nPhases, 48.f * PI);
+        rack::simd::float_4 plimit(48.f * _2_PI);
+        incrementPhase(tPitches, args.sampleRate, &tPhases, plimit);
+        incrementPhase(nPitches, args.sampleRate, &nPhases, plimit);
         tPhases += tPM;
         nPhases += nPM;
 
-        float loudcomp = 3.1;
+        float loudcomp = 3.1f;
         switch (equation) {
         case 0: {
             Paths.Electron(R, r, tWinds, tPhases, nWinds, nPhases, Coord);
             break;
         }
         case 1: {
-            loudcomp = 2.6;
+            loudcomp = 2.6f;
             Paths.Folding(R, r, tWinds, tPhases, nWinds, nPhases,  Coord);
             break;
         }
         case 2: {
-            loudcomp = 3.5;
+            loudcomp = 3.5f;
             Paths.Torus(R, r, tWinds, tPhases, nWinds, nPhases, Coord);
             break;
         }
@@ -467,9 +469,9 @@ struct TorusModule : Module
         rack::simd::float_4 path{ Coord[0][0], Coord[1][0], Coord[2][0], 0.f};
         pathToDraw = std::vector<rack::simd::float_4>{ path, Zero, Zero, Zero};
 
-        float xLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Xout);
-        float yLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Yout);
-        float zLerp = Functions.lerp(-5, 5, -(loudcomp), loudcomp, Zout);
+        float xLerp = lerp(-5.f, 5.f, -(loudcomp), loudcomp, Xout);
+        float yLerp = lerp(-5.f, 5.f, -(loudcomp), loudcomp, Yout);
+        float zLerp = lerp(-5.f, 5.f, -(loudcomp), loudcomp, Zout);
 
 
 
@@ -553,8 +555,6 @@ struct TorusDrawWidget : Widget {
         box.pos = topLeft;
 
     }
-    BaseFunctions Functions;
-    BaseMatrices Matrix;
 
     int frames = 0;
     std::vector<rack::simd::float_4> RotMatrixZ;
@@ -564,9 +564,9 @@ struct TorusDrawWidget : Widget {
     rack::simd::float_4 anglerot{ 0.0 };
     void drawLayer(const DrawArgs& args, int layer) override {
 
-        RotMatrixZ = Matrix.RotationXY(anglerot);
-        RotMatrixX = Matrix.RotationYZ(angle);
-        ProjectMatrix = Matrix.Projection(1.f / 1.2f);
+        RotMatrixZ = RotationXY(anglerot);
+        RotMatrixX = RotationYZ(angle);
+        ProjectMatrix = Projection(1.f / 1.2f);
 
         if (layer == 1 && Tora) {
             int drawboxX = box.size.x;
@@ -578,14 +578,14 @@ struct TorusDrawWidget : Widget {
             nvgFill(args.vg);
             nvgClosePath(args.vg);
             //if (frames %= 16) {
-                anglerot += _2PI / 360.f;
-                angle += _2PI / 420.f;
+                anglerot += _2_PI / 360.f;
+                angle += _2_PI / 420.f;
             //}
-            if (angle[0] > _2PI) {
-                angle -=  _2PI;
+            if (angle[0] > _2_PI) {
+                angle -=  _2_PI;
             }
-            if (anglerot[0] > _2PI) {
-                anglerot -=  _2PI;
+            if (anglerot[0] > _2_PI) {
+                anglerot -=  _2_PI;
             }
             rack::simd::float_4 color{ Tora->tWind, Tora->nWind, Tora->drive, 1.f };
 
@@ -599,15 +599,15 @@ struct TorusDrawWidget : Widget {
             for (int d = 0; d < (int)Line.size(); ++d) {
 
                 std::vector<rack::simd::float_4> LineprevVec{ Line[abs(d - 1)], Zero, Zero, Zero };
-                LineprevVec = Matrix.MatrixMult(RotMatrixZ, LineprevVec);
-                LineprevVec = Matrix.MatrixMult(RotMatrixX, LineprevVec);
-                LineprevVec = Matrix.MatrixMult(ProjectMatrix, LineprevVec);
+                LineprevVec = MatrixMult(RotMatrixZ, LineprevVec);
+                LineprevVec = MatrixMult(RotMatrixX, LineprevVec);
+                LineprevVec = MatrixMult(ProjectMatrix, LineprevVec);
                 rack::simd::float_4 Tailprev = LineprevVec[0];// *drawboxX / 1.6f;
 
                 std::vector<rack::simd::float_4> LineVec{ Line[d], Zero, Zero, Zero};
-                LineVec = Matrix.MatrixMult(RotMatrixZ, LineVec);
-                LineVec = Matrix.MatrixMult(RotMatrixX, LineVec);
-                LineVec = Matrix.MatrixMult(ProjectMatrix, LineVec);
+                LineVec = MatrixMult(RotMatrixZ, LineVec);
+                LineVec = MatrixMult(RotMatrixX, LineVec);
+                LineVec = MatrixMult(ProjectMatrix, LineVec);
                 rack::simd::float_4 Tail = LineVec[0];// *drawboxX / 1.6f;
 
                 nvgBeginPath(args.vg);
@@ -624,8 +624,11 @@ struct TorusDrawWidget : Widget {
     }
 };
 
+using namespace LydD::Components;
 struct TorusPanelWidget : ModuleWidget {
 
+    //include struct for logo here so it has modules name
+    #include "Theme/LogoLight.h"
     //name for panel file, same name for every type
     std::string panel;
 
@@ -681,6 +684,12 @@ struct TorusPanelWidget : ModuleWidget {
             TorWidget->setSize(Vec(160, 120));
             TorBuffer->addChild(TorWidget);
             addChild(TorBuffer);
+
+            //must be called 'logoPos'for all modules 
+            Vec logoPos = Vec(((15.f * HP) / 3.9f) - 12.5, 363.f);
+            TorusModule* module = dynamic_cast<TorusModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h"
         }
 
     }

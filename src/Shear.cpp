@@ -1,10 +1,11 @@
 #include "plugin.hpp"
-#include <vector>
-#include <string>
-
 
 #define MODULE_NAME ShearModule
 #define PANEL "Shear_panel.svg"
+#define HP 6
+
+
+using namespace LydD;
 
 static const int maxPolyphony = 1;
 
@@ -45,10 +46,6 @@ struct ShearModule : Module
 
     #include "Theme/PanelVars.h"
 
-    BaseFunctions Functions;
-    BaseButtons Buttons;
-
-
     int currentPolyphony = 1;
     int currentBanks = 1;
     int loopCounter = 0;
@@ -83,6 +80,9 @@ struct ShearModule : Module
             _CombL[i].reset();
             _CombR[i].reset();
         }
+
+
+        #include "Theme/setDefaultInit.h"
     }
 
     
@@ -110,7 +110,7 @@ struct ShearModule : Module
         float cutpar = params[CUTOFF_PARAM].value;
         float cutin = (inputs[CUTOFF_INPUT].isConnected()) ? rack::math::clamp(inputs[CUTOFF_INPUT].getVoltage(0), -3.f, 3.f) : 0.f;
         
-        cutoff = (Functions.VoltToFreq(cutpar + cutin, 0.f, 130.8125)) / args.sampleRate;
+        cutoff = (VoltToFreq(cutpar + cutin, 0.f, 130.8125)) / args.sampleRate;
         cutoff = rack::math::clamp(cutoff, 0.f, 0.49f / 12.f); //absolute limit for filter is 0.5, and I have 12 bands up the spectrum 
         
         float respar = params[RESONANCE_PARAM].value;
@@ -197,6 +197,7 @@ struct ShearModule : Module
         combSumLeft *= resonance + 1.f;
         combSumRight *= resonance + 1.f;
 
+        
         for (int d = 0; d < 3; ++d) { //give Vis lights somethin to work with, cutting out some floor movement
             visData[d] = (combSumLeft <= -0.001f || combSumLeft >= 0.001f) ? _CombL[d].getFrequencyPhase(BandsLeft[d]) * 0.4 : 0.f;
             visData[d + 3] = (combSumRight <= -0.001f || combSumRight >= 0.001f) ? _CombR[d].getFrequencyPhase(BandsRight[d]) * 0.4 : 0.f;
@@ -221,12 +222,14 @@ struct ShearModule : Module
         json_t* rootJ = json_object();
         json_t* panelJ = json_integer(currPanel);
         json_object_set_new(rootJ, "Panel", panelJ);
+
         return rootJ;
     }
 
     void dataFromJson(json_t* rootJ) override {
         json_t* panelJ = json_object_get(rootJ, "Panel");
-        if (panelJ) currPanel = json_integer_value(panelJ);        
+        if (panelJ) currPanel = json_integer_value(panelJ);
+        
     }
 
 };
@@ -309,9 +312,11 @@ struct LineLight : ModuleLightWidget {
     }
 };
 
-
+using namespace LydD::Components;
 struct ShearPanelWidget : ModuleWidget {
 
+    //include struct for logo here so it has modules name
+    #include "Theme/LogoLight.h"
     std::string panel;
 
     ShearPanelWidget(ShearModule* module) {
@@ -359,7 +364,15 @@ struct ShearPanelWidget : ModuleWidget {
             addChild(line2R);
             LineLight* line3R = new LineLight(module, Vec(43.127, 164.835), Vec(12.189, 19.210), 5);
             addChild(line3R);
+
+            //must be called 'logoPos'for all modules 
+            Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);
+            ShearModule* module = dynamic_cast<ShearModule*>(this->module);
+            assert(module);
+            #include "Theme/LogoChild.h"
         }
+
+        
     }
 
     //give struct to menu containing panel options
