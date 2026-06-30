@@ -12,7 +12,7 @@ using namespace LydD;
 
 //6th order approx of e^x
 //follows negative portion of sigmoid great, falls off above about +1.5
-//since that uses e^(-x) it follows the inverse is true for positive powers
+//since sigmoid uses e^(-x) it follows the inverse is true for positive powers
 template<typename T = float>
 T EulerToPower(T x) {
     const T coeffs[6] = { 1.f, 0.5f, 0.166666667f, 0.041666667f, 0.008333333f, 0.0013888889f };
@@ -41,6 +41,7 @@ struct SaturateCurve {
     };
 
     T CurveArray[L];
+    //as above, this sigmoid will only really be good for negative values of x
     T sigmoid(T x) {
         return 1.f / (1.f + EulerToPower(-x));
     }
@@ -50,9 +51,9 @@ struct SaturateCurve {
         default: {}
         case FULL: {
             for (int i = 0; i < L / 2; ++i) {
-                //create phase from -5 to +5
+                //create phase from -5 to +5 that will only travel from -5 to 0
                 T simInput = ((float)i / (float)L) * 10.f - 5.f;
-                //my sigmoid approx is only good for negative inputs, luckily its symmetric
+                //use symmetric nature to ease things
                 CurveArray[i] = sigmoid(simInput) * 2.f - 1.f;
                 CurveArray[L - i - 1] = -CurveArray[i];
             }
@@ -175,13 +176,24 @@ struct SeetheModule : Module
     SeetheModule() {
 
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-
+        std::string titles[3] = { " - Hate", " - Rage", " - Spite" };
         for (int i = 0; i < 3; ++i) {
-            configParam(DRIVE_PARAM + i, 0.1f, 10.f, 1.f, "Drive");
-            configParam(MORPH_PARAM + i, 0.f, 2.f, 0.f, "Morph");
-            configParam(CURVE_PARAM + i, -1.f, 1.f, 0.f, "Curve");
-            configParam(DRY_WET_PARAM + i, 0.f, 1.f, 0.f, "Dry/Wet");
+            configParam(DRIVE_PARAM + i, 0.1f, 10.f, 1.f, "Drive" + titles[i]);
+            configParam(MORPH_PARAM + i, 0.f, 2.f, 0.f, "Morph" + titles[i]);
+            configParam(CURVE_PARAM + i, -1.f, 1.f, 0.f, "Curve" + titles[i]);
+            configParam(DRY_WET_PARAM + i, 0.f, 1.f, 0.f, "Mix" + titles[i]);
+
+            configInput(DRIVE_INPUT + i, "Drive" + titles[i]);
+            configInput(BAND_INPUT + i, "Band Isolate" + titles[i]);
+            configInput(MORPH_INPUT + i, "Morph" + titles[i]);
+            configInput(CURVE_INPUT + i, "Curve" + titles[i]);
+            configInput(DRY_WET_INPUT + i, "Mix" + titles[i]);
+
+            configOutput(BAND_OUTPUT + i, "Band" + titles[i]);
         }
+        configInput(AUDIO_INPUT, "Audio All Band");
+        configOutput(AUDIO_OUTPUT, "Audio Sum");
+
 
         _sigma[0].preComputeCurve(_sigma[0].FULL);
         _sigma[1].preComputeCurve(_sigma[1].EVEN_FW);
@@ -290,17 +302,17 @@ struct SeetheModule : Module
         outputs[AUDIO_OUTPUT].setVoltage(satgroup, 0);
 
         //take a look at the actual curvePar produced over time
-        float testcurves[3];
-        for (int i = 0; i < 3; ++i) {
+        //float testcurves[3];
+        /*for (int i = 0; i < 3; ++i) {
             testcurves[i] = _sigma[i].getCurveDirect(loopCounter);
             testcurves[i] = normalCurve(-1.f, 1.f, testcurves[i], curve[0]);
-        }
-        float tcur = rack::math::crossfade(testcurves[morphidx[0]], testcurves[(morphidx[0] + 1) % 3], morph[0]);
+        }*/
+        //float tcur = rack::math::crossfade(testcurves[morphidx[0]], testcurves[(morphidx[0] + 1) % 3], morph[0]);
        // outputs[TEST1_OUTPUT].setVoltage(tcur, 0);
       
     }
 
-
+    //wow this module actually doesnt have to remember anything
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 

@@ -125,11 +125,19 @@ struct CanyonModule : Module
 
     CanyonModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+        std::string side[2] = { " - Left", " - Right" };
         for (int a = 0; a < 2; ++a) {
-            configParam(DELAY_PARAM + a, 0.1f, 16.f, 1.f, "Echo Time");
-            configParam(DELAY_CV_PARAM + a, -1.f, 1.f, 0.f, "Echo CV");
-            configParam(STONE_PARAM + a, 0.f, 1.f, 0.5f, "Light/Dark");
-            configParam(STONE_CV_PARAM + a, -1.f, 1.f, 0.f, "L/D CV");
+            configParam(DELAY_PARAM + a, 0.1f, 16.f, 1.f, "Echo Time" + side[a]);
+            configParam(DELAY_CV_PARAM + a, -1.f, 1.f, 0.f, "Echo CV" + side[a]);
+            configParam(STONE_PARAM + a, 0.f, 1.f, 0.5f, "Light/Dark" + side[a]);
+            configParam(STONE_CV_PARAM + a, -1.f, 1.f, 0.f, "L/D CV" + side[a]);
+
+            configInput(DELAY_INPUT + a, "Echo" + side[a]);
+            configInput(STONE_INPUT + a, "Light/Dark" + side[a]);
+            configInput(AUDIO_INPUT + a, "Audio In" + side[a]);
+
+            configOutput(AUDIO_OUTPUT + a, "Audio Out" + side[a]);
         }
 
         configParam(FEEDBACK_PARAM, 0.f, 1.f, 0.2f, "Feedback");
@@ -142,10 +150,7 @@ struct CanyonModule : Module
         configParam(DRY_PARAM, 0.f, 1.f, 0.5f, "Dry Mix");
         configParam(WET_PARAM, 0.f, 1.f, 0.5f, "Wet Mix");
 
-        configInput(DELAY_INPUT+0, "Ech Left");
-        configInput(DELAY_INPUT+1, "Echo Right");
-        configInput(STONE_INPUT+0, "Light/Dark Left");
-        configInput(STONE_INPUT+1, "Light/Dark Right");
+
         configInput(FEEDBACK_INPUT, "Feedback");
         configInput(PITCH_INPUT, "Pitch");
         configInput(SCATTER_INPUT, "Scatter");
@@ -153,11 +158,7 @@ struct CanyonModule : Module
         configInput(REVERSE_INPUT, "Reverse Gate");
         configInput(DRY_INPUT, "Dry Mix");
         configInput(WET_INPUT, "Wet Mix");
-        configInput(AUDIO_INPUT+0, "Audio In Left");
-        configInput(AUDIO_INPUT+1, "Audio In Right");
 
-        configOutput(AUDIO_OUTPUT + 0, "Audio Out Left");
-        configOutput(AUDIO_OUTPUT + 1, "Audio Out Right");
 
     }
 
