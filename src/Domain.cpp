@@ -17,14 +17,14 @@ struct SwitchModule : Module
         BIG_BUTTON_PARAM,
         BIG_MODE_BUTTON_PARAM,
         ENUMS(TO1_BUTTON_PARAMS, 4),
-        ENUMS(TO2_BUTTON_PARAMS, 4),
+        ENUMS(TO2_BUTTON_PARAMS, 4),//not atually using this at all, one button is shared on both sides
         ENUMS(MODE_BUTTON_PARAMS, 4),
         NUM_PARAMS
     };
     enum InputIds {
         BIG_SWITCH_INPUT,
         ENUMS(TO1_SWITCH_INPUTS, 4),
-        ENUMS(TO2_SWITCH_INPUTS, 4),
+        ENUMS(TO2_SWITCH_INPUTS, 4), 
         ENUMS(THIS_INPUTS, 4), //top(1) input     }
         ENUMS(THAT_INPUTS, 4), //bottom(2) input  } 2 in 1 out
         ENUMS(TOTHER_INPUTS, 4), // 1 input  ]1 in 2 out
@@ -49,18 +49,22 @@ struct SwitchModule : Module
     SwitchModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configSwitch(BIG_BUTTON_PARAM, 0.f, 1.f, 0.f, "Master Button");
-        configSwitch(BIG_MODE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Master Mode");
+        configSwitch(BIG_MODE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Master Latch");
+        configInput(BIG_SWITCH_INPUT, "Master Switch");
 
-        std::string which[4]{ "One", "Two", "Three", "Four" };
         for (int i = 0; i < 4; ++i) {
+            configSwitch(TO1_BUTTON_PARAMS + i, 0.f, 1.f, 0.f, "Switch");
+            configSwitch(MODE_BUTTON_PARAMS + i, 0.f, 1.f, 0.f, "Latch");
 
-            std::string This = "This - ";
-            This += which[i];
-            configInput(THIS_INPUTS + i, This);
+            configInput(TO1_SWITCH_INPUTS + i, "Switch 2->1 - " + std::to_string(i + 1));
+            configInput(TO2_SWITCH_INPUTS + i, "Switch 1->2 - " + std::to_string(i + 1));
 
-            std::string That = "That - ";
-            That += which[i];
-            configInput(THAT_INPUTS + i, That);
+            configInput(THIS_INPUTS + i, "A - " + std::to_string(i + 1));
+            configInput(THAT_INPUTS + i, "B - " + std::to_string(i + 1));
+            configInput(TOTHER_INPUTS + i, "C - " + std::to_string(i + 1));
+            configOutput(TOTHER_OUTPUTS + i, "2->1 - C - " + std::to_string(i + 1));
+            configOutput(THIS_OUTPUTS + i, "1->2 - A - " + std::to_string(i + 1));
+            configOutput(THAT_OUTPUTS + i, "1->2 - B - " + std::to_string(i + 1));
 
 
         }

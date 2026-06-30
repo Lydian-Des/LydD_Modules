@@ -448,7 +448,6 @@ struct SimoneModule : Module
                 }
             }
 
-
             rack::simd::float_4 Xoutend = Xouts;
             rack::simd::float_4 Youtend = Youts;
             if (rangetype == 2) {
@@ -456,42 +455,31 @@ struct SimoneModule : Module
                 dcRemoveY.process(Youts);
                 Xoutend = dcRemoveX.highpass();
                 Youtend = dcRemoveY.highpass();
-
             }
-
-            //this drive is from VCV fundamental VCF
-           /* Xoutend *= pow((drive / 4.f), 3) + 1.f;
-            Xoutend = rack::simd::clamp(Xoutend, -(2.f), 2.f);
-            Xoutend *= (34.f + Xoutend * Xoutend) / (34.f + 5.f * Xoutend * Xoutend);
-            Youtend *= pow((drive / 4.f), 3) + 1.f;
-            Youtend = rack::simd::clamp(Youtend, -(2.f), 2.f);
-            Youtend *= (34.f + Youtend * Youtend) / (34.f + 5.f * Youtend * Youtend);*/
-
-            Xoutend = filty[0].process(Xoutend, drive);
-            Youtend = filty[1].process(Youtend, drive);
+            Xoutend = filty[0].process(Xoutend * 10.f, drive);
+            Youtend = filty[1].process(Youtend * 10.f, drive);
             
-
-
-            outputs[X_1_OUTPUT].setVoltage(Xoutend[0] * 5.f, 0);
-            outputs[Y_1_OUTPUT].setVoltage(Youtend[0] * 5.f, 0);
-            outputs[X_2_OUTPUT].setVoltage(Xoutend[1] * 5.f, 0);
-            outputs[Y_2_OUTPUT].setVoltage(Youtend[1] * 5.f, 0);
-            outputs[X_3_OUTPUT].setVoltage(Xoutend[2] * 5.f, 0);
-            outputs[Y_3_OUTPUT].setVoltage(Youtend[2] * 5.f, 0);
-            outputs[X_4_OUTPUT].setVoltage(Xoutend[3] * 5.f, 0);
-            outputs[Y_4_OUTPUT].setVoltage(Youtend[3] * 5.f, 0);
+            outputs[X_1_OUTPUT].setVoltage(Xoutend[0], 0);
+            outputs[Y_1_OUTPUT].setVoltage(Youtend[0], 0);
+            outputs[X_2_OUTPUT].setVoltage(Xoutend[1], 0);
+            outputs[Y_2_OUTPUT].setVoltage(Youtend[1], 0);
+            outputs[X_3_OUTPUT].setVoltage(Xoutend[2], 0);
+            outputs[Y_3_OUTPUT].setVoltage(Youtend[2], 0);
+            outputs[X_4_OUTPUT].setVoltage(Xoutend[3], 0);
+            outputs[Y_4_OUTPUT].setVoltage(Youtend[3], 0);
 
             float mixX = 0.f;
             for (int m = 0; m < 4; ++m) {
-                mixX += Xoutend[m] * 2.f;
+                mixX += Xoutend[m];
             }
-
+            mixX *= 0.25f;
             outputs[MIX_X_OUTPUT].setVoltage(mixX, 0);
 
             float mixY = 0.f;
             for (int m = 0; m < 4; ++m) {
-                mixY += Youtend[m] * 2.f;
+                mixY += Youtend[m];
             }
+            mixY *= 0.25f;
             outputs[MIX_Y_OUTPUT].setVoltage(mixY, 0);
     }
 

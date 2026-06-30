@@ -49,8 +49,8 @@ struct CanyonModule : Module
     };
     enum OutputIds {
 
-        TESTOUT,
-        TESTOUT2,
+        //TESTOUT,
+        //TESTOUT2,
         ENUMS(AUDIO_OUTPUT, 2),
         NUM_OUTPUTS
     };
@@ -126,10 +126,10 @@ struct CanyonModule : Module
     CanyonModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         for (int a = 0; a < 2; ++a) {
-            configParam(DELAY_PARAM + a, 0.f, 16.f, 1.f, "Delay");
-            configParam(DELAY_CV_PARAM + a, -1.f, 1.f, 0.f, "Delay CV");
-            configParam(STONE_PARAM + a, 0.f, 1.f, 0.5f, "Stone");
-            configParam(STONE_CV_PARAM + a, -1.f, 1.f, 0.f, "Stone CV");
+            configParam(DELAY_PARAM + a, 0.1f, 16.f, 1.f, "Echo Time");
+            configParam(DELAY_CV_PARAM + a, -1.f, 1.f, 0.f, "Echo CV");
+            configParam(STONE_PARAM + a, 0.f, 1.f, 0.5f, "Light/Dark");
+            configParam(STONE_CV_PARAM + a, -1.f, 1.f, 0.f, "L/D CV");
         }
 
         configParam(FEEDBACK_PARAM, 0.f, 1.f, 0.2f, "Feedback");
@@ -141,6 +141,23 @@ struct CanyonModule : Module
 
         configParam(DRY_PARAM, 0.f, 1.f, 0.5f, "Dry Mix");
         configParam(WET_PARAM, 0.f, 1.f, 0.5f, "Wet Mix");
+
+        configInput(DELAY_INPUT+0, "Ech Left");
+        configInput(DELAY_INPUT+1, "Echo Right");
+        configInput(STONE_INPUT+0, "Light/Dark Left");
+        configInput(STONE_INPUT+1, "Light/Dark Right");
+        configInput(FEEDBACK_INPUT, "Feedback");
+        configInput(PITCH_INPUT, "Pitch");
+        configInput(SCATTER_INPUT, "Scatter");
+        configInput(FREEZE_DELAY_INPUT, "Freeze Gate");
+        configInput(REVERSE_INPUT, "Reverse Gate");
+        configInput(DRY_INPUT, "Dry Mix");
+        configInput(WET_INPUT, "Wet Mix");
+        configInput(AUDIO_INPUT+0, "Audio In Left");
+        configInput(AUDIO_INPUT+1, "Audio In Right");
+
+        configOutput(AUDIO_OUTPUT + 0, "Audio Out Left");
+        configOutput(AUDIO_OUTPUT + 1, "Audio Out Right");
 
     }
 
@@ -228,7 +245,7 @@ struct CanyonModule : Module
         }
         }
     }
-    // modes: dual mono, pingpong, widener
+    // modes: dual mono, pingpong, cross-feed
     void processDelay(const ProcessArgs& args) {
         
         float fcrawl = feedback * args.sampleRate; //crawl inupt for frozen, up to ~1 second size
@@ -254,8 +271,8 @@ struct CanyonModule : Module
             lastSample[a] = DelayOutput[a];
             DelayOutput[a] = (Output);
         }
-        outputs[TESTOUT].setVoltage(_Delay[0].outRead[0] % DELAY_BUFFER_SPACE / (float)DELAY_BUFFER_SPACE, 0);
-        outputs[TESTOUT2].setVoltage(_Delay[0].inRead % INPUT_BUFFER_SPACE / (float)INPUT_BUFFER_SPACE, 0);
+       // outputs[TESTOUT].setVoltage(_Delay[0].outRead[0] % DELAY_BUFFER_SPACE / (float)DELAY_BUFFER_SPACE, 0);
+       // outputs[TESTOUT2].setVoltage(_Delay[0].inRead % INPUT_BUFFER_SPACE / (float)INPUT_BUFFER_SPACE, 0);
 
     }
 
@@ -296,6 +313,25 @@ struct CanyonModule : Module
     void setParams(const ProcessArgs& args) {
 
         incrementButton(params[MODE_BUTTON].value, &modepress, 3, &State);
+        std::string modename = "Mode - ";
+        switch (State) {
+        default: {}
+        case DUAL_MONO: {
+            std::string mode = modename + std::string("Dual-Mono");
+            paramQuantities[MODE_BUTTON]->name = mode;
+            break;
+        }
+        case PING_PONG: {
+            std::string mode = modename + std::string("Ping-Pong");
+            paramQuantities[MODE_BUTTON]->name = mode;
+            break;
+        }
+        case CROSS_FEED: {
+            std::string mode = modename + std::string("Cross-Feed");
+            paramQuantities[MODE_BUTTON]->name = mode;
+            break;
+        }
+        }
 
         for (int a = 0; a < 2; ++a) {
             delayPar[a] = params[DELAY_PARAM + a].value / 16.f;
@@ -321,8 +357,7 @@ struct CanyonModule : Module
             stone[s] = VoltToFreq(stonePar[s] * 2.f, 0.f, 300.f);
             stonePar[s] = rack::math::clamp(stonePar[s], 0.f, 1.f);
         }
-        
-      
+          
         for (int a = 0; a < 2; ++a) {
             _scatter[a].setSmear(scasmall, Scatter, scabig, args.sampleRate * 0.5f);
             _Stone[a].setCut(stone[a], args.sampleRate * 0.5f);
@@ -332,9 +367,6 @@ struct CanyonModule : Module
         float pickreverse = isinReverse ? inputs[REVERSE_INPUT].getVoltage(0) : params[REVERSE_BUTTON].value;
         frozenDelay = pickfreezeD >= 1.f;
         reverseDelay = pickreverse >= 1.f;
-
-
-
 
         for (int a = 0; a < 2; ++a) {
             deClick[a].setParameters(deClick[a].Type::LOWPASS, 0.22676f, 10.f, 1.f);
@@ -499,7 +531,7 @@ struct CanyonPanelWidget : ModuleWidget {
 
     CanyonPanelWidget(CanyonModule* module) {
         setModule(module);
-        LydD::Components::setPlugin(pluginInstance);
+       // LydD::Components::setPlugin(pluginInstance);
 		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Canyon_panel.svg")));
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
@@ -547,8 +579,8 @@ struct CanyonPanelWidget : ModuleWidget {
 
         addOutput(createOutput<PurplePort>(Vec(90, 338), module, CanyonModule::AUDIO_OUTPUT + 0));
         addOutput(createOutput<PurplePort>(Vec(118.5, 338), module, CanyonModule::AUDIO_OUTPUT + 1));
-        addOutput(createOutput<PurplePort>(Vec(0, 88), module, CanyonModule::TESTOUT));
-        addOutput(createOutput<PurplePort>(Vec(0, 120), module, CanyonModule::TESTOUT2));
+       // addOutput(createOutput<PurplePort>(Vec(0, 88), module, CanyonModule::TESTOUT));
+       // addOutput(createOutput<PurplePort>(Vec(0, 120), module, CanyonModule::TESTOUT2));
         if (module) {
             addChild(createLight<CanButtonLight>(Vec(120, 162), module, CanyonModule::FREEZE_LIGHT + 0));
             addChild(createLight<CanButtonLight>(Vec(120, 202), module, CanyonModule::REVERSE_LIGHT + 0));

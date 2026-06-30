@@ -214,7 +214,7 @@ namespace FFTStuff {
         T filtHann[R];
         bool firstTimeIn[HN];
         std::atomic<bool> outReady[HN];
-        int currentWindow = 0; //current window being FFT'd
+        std::atomic<int> currentWindow; //current window being FFT'd
         niceBlock<T, I>* inWindow;
         niceBlock<T, I> FFFreqs;
         niceBlock<T, I> alteredFreqs;
@@ -259,6 +259,7 @@ namespace FFTStuff {
             for (int f = R / 4; f < R; ++f) {
                 filtHann[f] =(T)0;
             }
+            currentWindow.store(0);
             pitchWorker = std::thread(&FFTPitchShift::processFFT, this);
         }
         ~FFTPitchShift() {
@@ -336,7 +337,7 @@ namespace FFTStuff {
                     }
                 }
             }
-            if (this->inFull(this->currentWindow)) {
+            if (this->inFull(this->currentWindow.load())) {
                 this->FFTReady.store(true);
                 workCV.notify_one();
             }
@@ -355,6 +356,7 @@ namespace FFTStuff {
                 //make sure to close the thread when the program terminates
                 if (this->Quitting) return;
                 //if (this->inFull(this->currentWindow)) {
+                lock.lock();
                     this->takeScaledFFT(this->inWindow[this->currentWindow].dat, this->FFFreqs.dat);
 
                     //remove potentially unwanted info from altered bins
@@ -373,8 +375,8 @@ namespace FFTStuff {
                     this->invertFFT(this->alteredFreqs.dat, this->outWindow[this->currentWindow].dat);
                     autoWindow(this->outWindow[this->currentWindow].dat, this->outWindow[this->currentWindow].dat);
                     //this is set true for the first time for the first outblock only after the first fft is done
-                    this->outReady[this->currentWindow] = true;
-                    this->currentWindow = (this->currentWindow + 1) % this->HN;
+                    this->outReady[this->currentWindow].store(true);
+                    this->currentWindow.store((this->currentWindow.load() + 1) % this->HN);
                     this->FFTReady.store(false);
                 //}
                 lock.unlock();

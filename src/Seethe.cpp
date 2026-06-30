@@ -82,15 +82,13 @@ struct SaturateCurve {
         case SIN: {
             for (int i = 0; i < L; ++i) {
                 //create phase from -5 to +5
-
+                //imprinting a sinusoid gives wavefoldery behavior 
                 T simInput = ((float)i / (float)L) * 10.f - 5.f;
                 T sigmee = sigmoid(simInput) * 2.f - 1.f;
-
                 T sigm = rack::simd::sin(simInput / 5.f * _2_PI) / 2.f;
                 sigm -= sigmee;
-                //full wave even is like bouncy ball
                 CurveArray[i] = sigm;
-                //CurveArray[L - i - 1] = -sigm;
+
             }
             break;
         }
@@ -120,7 +118,7 @@ struct SaturateCurve {
         float frac = inasdex - dex;
         T curve = rack::math::crossfade(CurveArray[dex], CurveArray[dex + 1],  frac);
         curve = normalCurve(-1.f, 1.f, curve, tension);
-        //scale back from curvePar to input range
+        //scale back from curvePar to input range capped at +-5v
         curve *= 5.f;
         return curve;
     }
@@ -148,7 +146,7 @@ struct SeetheModule : Module
     enum OutputIds {
         AUDIO_OUTPUT,
         ENUMS(BAND_OUTPUT, 3),
-        TEST1_OUTPUT,
+        //TEST1_OUTPUT,
         NUM_OUTPUTS
     };
     enum LightIds {
@@ -298,7 +296,7 @@ struct SeetheModule : Module
             testcurves[i] = normalCurve(-1.f, 1.f, testcurves[i], curve[0]);
         }
         float tcur = rack::math::crossfade(testcurves[morphidx[0]], testcurves[(morphidx[0] + 1) % 3], morph[0]);
-        outputs[TEST1_OUTPUT].setVoltage(tcur, 0);
+       // outputs[TEST1_OUTPUT].setVoltage(tcur, 0);
       
     }
 
@@ -324,7 +322,7 @@ struct SeethePanelWidget : ModuleWidget {
 
     SeethePanelWidget(SeetheModule* module) {
         setModule(module);
-        LydD::Components::setPlugin(pluginInstance);
+        //LydD::Components::setPlugin(pluginInstance);
 		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Seethe_panel.svg")));
 
 		addChild(createWidget<ScrewSilver>(Vec(15, 0)));
@@ -365,7 +363,7 @@ struct SeethePanelWidget : ModuleWidget {
             addOutput(createOutput<PurplePort>(Vec(bandX[o], ioY[1]), module, SeetheModule::BAND_OUTPUT + o));
         }
 
-        addOutput(createOutput<PurplePort>(Vec(130, 338), module, SeetheModule::TEST1_OUTPUT));
+       // addOutput(createOutput<PurplePort>(Vec(130, 338), module, SeetheModule::TEST1_OUTPUT));
 
         if (module) {
             

@@ -100,10 +100,18 @@ struct ReflectModule : Module
     ReflectModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         for (int p = 0; p < 2; ++p) {
-            configParam(WINDOW_SIZE_PARAM + p, 0.5f, 10.f, 10.f, "Window Size");
-            configParam(WINDOW_OFFSET_PARAM + p, -5.f, 5.f, 0.f, "Shift");
+            configParam(WINDOW_SIZE_PARAM + p, 0.5f, 10.f, 10.f, "Frame Width");
+            configParam(WINDOW_OFFSET_PARAM + p, -5.f, 5.f, 0.f, "Height Shift");
             configParam(CURVE_PARAM + p, -1.f, 1.f, 0.f, "Curve");
             configSwitch(MIRROR_BUTTON + p, 0.f, 1.f, 0.f, "Mirror Type");
+
+            configInput(SIGNAL_INPUT + p, "Signal");
+            configInput(WSIZE_INPUT + p, "Frame Width");
+            configInput(WOFFSET_INPUT + p, "Height Shift");
+            configInput(CURVE_INPUT + p, "Curve");
+
+            configOutput(MAIN_OUTPUT + p, "Main");
+            configOutput(INVERT_OUTPUT + p, "Inverted");
         }
 
     }

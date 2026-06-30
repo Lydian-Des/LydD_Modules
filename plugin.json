@@ -73,9 +73,9 @@
 		},
 		{
 			"slug": "Hex-Quantizer",
-			"name": "Quantizer",
+			"name": "Tonnet",
 			"description": "Quantizer",
-			"tags": [ "VCO", "LFO" ]
+			"tags": [ "Quantizer" ]
 		},
 		{
 			"slug": "Reflector",

@@ -19,7 +19,6 @@ const float E = 2.7182818284590;
 using namespace LydD;
 
 
-//can I wrap this and the switch struct in a class without th functions becoming 'members' and breaking the array
 using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::complex<float>);
     std::complex<float> andrewkayTan(std::complex<float> x) {
         const float pisqby4 = 2.4674011002723397f;
@@ -172,6 +171,7 @@ struct PoppyModule : Module
     //init chosen fractal
     Brot_Pick brotType = Brot.chooseFractal(0);
     //vectors being filled with sequence
+    //worker thread has to use Coords, C, Z , EXP
     float xCoord[ITERS + 1];
     float yCoord[ITERS + 1];
 
@@ -270,7 +270,7 @@ struct PoppyModule : Module
     rack::dsp::SlewLimiter _slewlimitX{};
     rack::dsp::TRCFilter<float> deClick;
 
-    std::thread SEQ;
+    //std::thread SEQ;
     std::mutex fracTex;
     std::atomic<bool> Quitting{ false };
 
@@ -332,12 +332,12 @@ struct PoppyModule : Module
 
     #include "Theme/setDefaultInit.h"
 
-        if (!SEQ.joinable()) SEQ = std::thread(&PoppyModule::createSequence, this);
+       // if (!SEQ.joinable()) SEQ = std::thread(&PoppyModule::createSequence, this);
     }
     ~PoppyModule() {
         Quitting.store(true);
         _ANYCHANGE.store(false);
-        if (SEQ.joinable()) SEQ.join();
+        //if (SEQ.joinable()) SEQ.join();
     }
 
     
@@ -356,7 +356,7 @@ struct PoppyModule : Module
             combineParameters(args);
             //this reeeeeally should eventually be tossed to a thread
             //fracTex.unlock();
-            //createSequence();           
+            createSequence();           
         }
         
         generateOutput(args);
@@ -525,7 +525,6 @@ struct PoppyModule : Module
         }
         deClick.setCutoffFreq(2000.f / args.sampleRate);
 
-
         //this sets the actual fractal equation used
         brotType = Brot.chooseFractal(fractal);
     }
@@ -535,17 +534,10 @@ struct PoppyModule : Module
         float movexpr = MOVEX;
         float moveypr = MOVEY;
         float zoompr = ZOOM;
-        float cxpr = Cx;
-        float cypr = Cyi;
-        float zxpr = Zx;
-        float zypr = Zyi;
-        float expr = EXP;
         bool julpr = julia;
         bool mirpr = mirror;
         int fracpr = fractal;
         int qualpr = quality;
-        // a bool is composed of these at the end
-
 
         latchButton(params[MIRROR_BUTTON_PARAM].value, &mirror, &mir);
         latchButton(params[INVERT_BUTTON_PARAM].value, &invert, &inv);
@@ -591,14 +583,14 @@ struct PoppyModule : Module
 
         float EXPparam = params[EXP_X_PARAM].value;
         float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.f;
-        EXP = EXPparam + EXPin;
+        float Expcombo = EXPparam + EXPin;
 
         float Zxpar = params[Z_X_PARAM].value;
         float Zypar = params[Z_YI_PARAM].value;
         float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0.f;
         float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0.f;
-        Zx = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zxin) + Zxpar, -1.5f, 1.5f);
-        Zyi = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zyin) + Zypar, -1.5f, 1.5f);
+        float Zxcombo = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zxin) + Zxpar, -1.5f, 1.5f);
+        float Zycombo = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zyin) + Zypar, -1.5f, 1.5f);
 
         float Cxpar = params[C_X_PARAM].value;
         float Cypar = params[C_YI_PARAM].value;
@@ -613,18 +605,17 @@ struct PoppyModule : Module
             TY = wrapFree(TY, -_PI, _PI);
             PolartoCart(CX, TY, &CX, &CY);
         }
-
         float Cxcombo = lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, CX);
+        Cxcombo = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
         float Cycombo = lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, CY);
-        Cx = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
-        Cyi = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
+        Cycombo = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
 
         float CenterX = params[MOVE_X_PARAM].value;
         float CenterY = params[MOVE_YI_PARAM].value;
         //fun little adjustment check to move to actual fractal space location
-        if (CtoMove && ((Cyi != CenterY) || (Cx != CenterX))) {
-            params[MOVE_X_PARAM].setValue(Cx);
-            params[MOVE_YI_PARAM].setValue(Cyi);
+        if (CtoMove && ((Cycombo != CenterY) || (Cxcombo != CenterX))) {
+            params[MOVE_X_PARAM].setValue(Cxcombo);
+            params[MOVE_YI_PARAM].setValue(Cycombo);
             //zero soil knobs to retain location
             params[C_X_PARAM].setValue(0.f);
             params[C_YI_PARAM].setValue(0.f);
@@ -654,25 +645,43 @@ struct PoppyModule : Module
 
         //check for any change in parameters that could result in a different sequence
         //this also is necessary to tell when to draw the picture again
-        bool drawneeded = movexpr != MOVEX;
-        drawneeded |= moveypr != MOVEY;
-        drawneeded |= zoompr != ZOOM;;
-        drawneeded |= zxpr != Zx;
-        drawneeded |= zypr != Zyi;
-        drawneeded |= expr != EXP;
-        drawneeded |= julpr != julia;
-        drawneeded |= fracpr != fractal;
-     
-        bool allchange = drawneeded;
-        allchange |= cxpr != Cx;
-        allchange |= cypr != Cyi;
-        allchange |= mirpr != mirror;
-        //tell the worker that something changed
-        if(allchange) _ANYCHANGE.store(true);
+        //group the writing of shared parameters so i can lock it once here
+        //how in tf do i make something like this 'lockless'
+        {
+            //std::lock_guard<std::mutex> lock(fracTex);
 
-        drawneeded |= qualpr != quality;
-        //tell the widget it needs to calculate
-        if (drawneeded) _DRAWCHANGE.store(true);
+            float cxpr = Cx;
+            float cypr = Cyi;
+            float zxpr = Zx;
+            float zypr = Zyi;
+            float expr = EXP;
+
+            Cx = Cxcombo;
+            Cyi = Cycombo;
+            Zx = Zxcombo;
+            Zyi = Zycombo;
+            EXP = Expcombo;
+
+            bool drawneeded = movexpr != MOVEX;
+            drawneeded |= moveypr != MOVEY;
+            drawneeded |= zoompr != ZOOM;;
+            drawneeded |= zxpr != Zxcombo;
+            drawneeded |= zypr != Zycombo;
+            drawneeded |= expr != Expcombo;
+            drawneeded |= julpr != julia;
+            drawneeded |= fracpr != fractal;
+
+            bool allchange = drawneeded;
+            allchange |= cxpr != Cxcombo;
+            allchange |= cypr != Cycombo;
+            allchange |= mirpr != mirror;
+            //tell the worker that something changed
+            if (allchange) _ANYCHANGE.store(true);
+
+            drawneeded |= qualpr != quality;
+            //tell the widget it needs to calculate
+            if (drawneeded) _DRAWCHANGE.store(true);
+        }
 
 
         //making slew limiter RiseFall proportional to estimated time between clock pulses(speedX, speedY). 
@@ -692,40 +701,49 @@ struct PoppyModule : Module
     }
 
     void createSequence() {
-        while (true) {
-
+       // while (true) {
+            //if theres been no change or the module is being deleted, just leave so no lock gets lost
             if (Quitting) return;
 
-            fracTex.lock();
-            
-
+            //if it gets here it will need access to the main parameters
+            std::complex<float>C(0,0);
+            std::complex<float>Z(0,0);
+            float expon = 2;
+            float xco[ITERS + 1];
+            float yco[ITERS + 1];
+            //still make sure math only runs when theres been a change
             if (_ANYCHANGE) {
-                if (mirror) {
-                    Cyi = -Cyi;
-                    Zyi = -Zyi;
+                //lock direct access to shared data
+                //ACTUALLY maybe worker cant ever lock main out
+                {
+                    //std::lock_guard<std::mutex> lock(fracTex);
+                    if (mirror) {
+                        Cyi = -Cyi;
+                        Zyi = -Zyi;
+                    }
+                    C = std::complex<float>(Cx, Cyi);
+                    Z = std::complex<float>(Zx, Zyi);
+                    expon = EXP;
+                    if (julia) {
+                        std::complex<float>Zswap = Z;
+                        Z = C;
+                        C = Zswap;
+                    }
                 }
-
-                std::complex<float>C(Cx, Cyi);
-                std::complex<float>Z(Zx, Zyi);
-
-                if (julia) {
-                    std::complex<float>Zswap = Z;
-                    Z = C;
-                    C = Zswap;
-                }
+                //now this can run without stopping anything
                 for (int i = 0; i <= ITERS; ++i) {
                     std::complex<float>pastVal = Z;
-                    Z = brotType(EXP, C, pastVal);
+                    Z = brotType(expon, C, pastVal);
                     if (abs(Z) <= 2.f) {
-                        xCoord[i] = (real(Z));
-                        yCoord[i] = (imag(Z));
+                        xco[i] = (real(Z));
+                        yco[i] = (imag(Z));
                     }
                     else if (abs(Z) > 2.f || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
                         //if it doesnt get to do any iterations, just copy in the C value
                         if (i == 0) {
                             for (int p = 0; p <= ITERS; ++p) {
-                                xCoord[p] = real(C);
-                                yCoord[p] = imag(C);
+                                xco[p] = real(C);
+                                yco[p] = imag(C);
                             }
                         }
                         else {
@@ -733,23 +751,30 @@ struct PoppyModule : Module
                             int q = 0;
                             for (int p = i; p <= ITERS; ++p) {
                                 int rptind = q % i;
-                                xCoord[p] = xCoord[rptind];
-                                yCoord[p] = yCoord[rptind];
+                                xco[p] = xco[rptind];
+                                yco[p] = yco[rptind];
                                 ++q;
                             }
                         }
                         break;
 
                     }
-
                 }
+                //lock again to transfer
+                {
+                    //std::lock_guard<std::mutex> lock(fracTex);
+                    for (int i = 0; i <= ITERS; ++i) {
+                        xCoord[i] = xco[i];
+                        yCoord[i] = yco[i];
+                    }
+                }
+
+                //wait for another change to occur
                 _ANYCHANGE.store(false);
             }
-            //when sequence is complete, wait for another change
+            //fracTex.unlock();
             
-            fracTex.unlock();
-            
-        }
+        //}
     }
 
 
@@ -765,19 +790,27 @@ struct PoppyModule : Module
         YshiftStep = wraparound(bY - shiftOffset, ITERS); // (Yseqstep + seqstart - shiftOffset) % ITERS;
         //YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
 
-        //lets get wierd with it
-        if (!julia) {
-            Mutate = rack::dsp::sqrtBipolar((Zx * Zx) + (Zyi * Zyi)) ;
-        }
-        else {
-            Mutate = rack::dsp::sqrtBipolar((Cx * Cx) + (Cyi * Cyi));
-        }
 
-        float cvValX = xCoord[Xstep];
-        float cvValY = yCoord[Ystep];
-        float shiftValX = xCoord[XshiftStep];
-        float shiftValY = yCoord[YshiftStep];
+        float cvValX = 0;
+        float cvValY = 0;
+        float shiftValX = 0;
+        float shiftValY = 0;
+        //lock worker out to pull coordinates
+        {
+            //std::lock_guard<std::mutex> lock(fracTex);
+            //lets get wierd with it
+            if (!julia) {
+                Mutate = rack::dsp::sqrtBipolar((Zx * Zx) + (Zyi * Zyi));
+            }
+            else {
+                Mutate = rack::dsp::sqrtBipolar((Cx * Cx) + (Cyi * Cyi));
+            }
 
+            cvValX = xCoord[Xstep];
+            cvValY = yCoord[Ystep];
+            shiftValX = xCoord[XshiftStep];
+            shiftValY = yCoord[YshiftStep];
+        }
         if (invert) {
             cvValX = -cvValX;
             cvValY = -cvValY;
@@ -790,26 +823,6 @@ struct PoppyModule : Module
         cvValY *= zoomFactor;
         shiftValX *= zoomFactor;
         shiftValY *= zoomFactor;
-
-        //trying to change it up a bit(a 5th to be real) if it moves straight horizontal or vertical
-        bool xClose = rack::math::isNear(xCoord[abs(Xstep - 1)], xCoord[Xstep], 0.0416f);
-        if (xClose) {
-            cvValX += 0.583333;
-        }
-        bool yClose = rack::math::isNear(yCoord[abs(Ystep - 1)], yCoord[Ystep], 0.0416f);
-        if (yClose) {
-            cvValY += 0.583333;
-        }
-        bool xSClose = rack::math::isNear(xCoord[abs(XshiftStep - 1)], xCoord[XshiftStep], 0.0416f);
-        if (xSClose) {
-            shiftValX += 0.583333;
-        }
-        bool ySClose = rack::math::isNear(yCoord[abs(YshiftStep - 1)], yCoord[YshiftStep], 0.0416f);
-        if (ySClose) {
-            shiftValY += 0.583333;
-        }
-
-
 
         float timestepX = timerX.process(args.sampleTime);
         float timestepY = timerY.process(args.sampleTime);

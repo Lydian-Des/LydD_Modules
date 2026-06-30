@@ -80,7 +80,19 @@ struct ShearModule : Module
             _CombL[i].reset();
             _CombR[i].reset();
         }
+        configInput(AUDIOLEFT_INPUT, "Audio Left");
+        configInput(AUDIORIGHT_INPUT, "Audio Right");
+        configInput(CUTOFF_INPUT, "Cutoff");
+        configInput(RESONANCE_INPUT, "Resonance");
+        configInput(FEEDBACK_INPUT, "Feedback");
+        configInput(FEEDLEFT_RETURN_INPUT, "Return Left");
+        configInput(FEEDRIGHT_RETURN_INPUT, "Return Right");
+        configInput(EVEN_ODD_INPUT, "Even/Odd Harmonics");
 
+        configOutput(AUDIOLEFT_OUTPUT, "Audio Left");
+        configOutput(AUDIORIGHT_OUTPUT, "Audio Right");
+        configOutput(FEEDLEFT_SEND_OUTPUT, "Send Left");
+        configOutput(FEEDRIGHT_SEND_OUTPUT, "Send Right");
 
         #include "Theme/setDefaultInit.h"
     }

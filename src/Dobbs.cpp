@@ -13,12 +13,14 @@ private:
     rack::dsp::BooleanTrigger _trigger;
     rack::dsp::BooleanTrigger _EOC;
     rack::dsp::PulseGenerator _EOCPulse;
+    rack::dsp::Timer _totalTime;
 public:
     float Atime;
     float Rtime;
     float Aphase;
     float Rphase;
     float samplePhase;
+    float TotalTime;
     float Shape;
     bool Attacking;
     bool Sustain;
@@ -36,6 +38,7 @@ public:
         Sustaining = false;
         EOC = false;
         _trigger.reset();
+        _totalTime.reset();
     }
 
     void setAttackRelease(bool timesize, float a, float r, bool sus) {
@@ -48,24 +51,27 @@ public:
         this->Shape = shape;
     }
     //build in retrigger smoothing
-    void Trigger(float trig, bool sustain) {
+    void Trigger(float trig, bool sustain, float sampletime) {
         bool triggered = this->_trigger.process(trig);
         this->Sustaining = (this->Sustain) ? sustain : false;
-
+        //capture total time between triggers
+        TotalTime = _totalTime.process(sampletime);
         if (triggered) {
             //retrigger
             if (this->samplePhase != 0.f) {
                 this->samplePhase = (this->Attacking) ? this->Aphase * this->Atime : (-this->Rphase + 1.f) * this->Atime;
             }    
             this->Attacking = true;
+            _totalTime.reset();
         }
 
         return;
     }
-    void triggerCompanion(Envelope* companion, float delaytime) {
-        float totalphase = (this->Attacking) ? this->Aphase : this->Rphase + 1.f;
-        float trigcompanion = (totalphase >= delaytime * 1.99f) ? 1.f : 0.f;
-        companion->Trigger(trigcompanion, this->Sustaining);
+    void triggerCompanion(Envelope* companion, float delaytime, float sampletime) {
+        float comphase = this->TotalTime;
+        //float totalphase = (this->Attacking) ? this->Aphase : this->Rphase + 1.f;
+        float trigcompanion = (comphase >= delaytime) ? 1.f : 0.f;
+        companion->Trigger(trigcompanion, this->Sustaining, sampletime);
     }
     void AttackPhase(float* Value, float sampletime) {
         if (this->Attacking) {
@@ -86,7 +92,8 @@ public:
     }
     void ReleasePhase(float* Value, float sampletime) {
         this->EOC = _EOC.process(*Value <= 0.01f);
-        if (!this->Attacking && *Value > 0.f && !this->Sustaining) {
+        if (this->Sustaining) return;
+        if (!this->Attacking && *Value > 0.f ) {
             float shapemod = lerp(1.f, *Value, 0.f, 1.f, this->Shape);
             
             this->Rphase = this->samplePhase / this->Rtime;
@@ -289,8 +296,8 @@ struct DobbsModule : Module
             ENVcomp[i].setAttackRelease(spdFsetC[i], attacktime2, releasetime2, ASRset[i]);
             ENVmain[i].setShape(shape);
             ENVcomp[i].setShape(shape);
-            ENVmain[i].Trigger(Gates[i], Gates[i] > 0.5);
-            ENVmain[i].triggerCompanion(&ENVcomp[i], delay);
+            ENVmain[i].Trigger(Gates[i], Gates[i] > 0.5, args.sampleTime);
+            ENVmain[i].triggerCompanion(&ENVcomp[i], delay, args.sampleTime);
             ENVmain[i].AttackPhase(&EnvelopeMain[i], args.sampleTime);
             ENVmain[i].ReleasePhase(&EnvelopeMain[i], args.sampleTime);
             ENVcomp[i].AttackPhase(&EnvelopeCompanion[i], args.sampleTime);

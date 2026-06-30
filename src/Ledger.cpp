@@ -18,8 +18,10 @@ struct logicBlock {
     bool Nor;
     bool Not1;
     bool Not2; 
-    bool Flip;
-    bool Flop;
+    bool Flip1;
+    bool Flop1;
+    bool Flip2;
+    bool Flop2;
     bool Ay;
     bool Bee;
     logicBlock() {
@@ -29,8 +31,10 @@ struct logicBlock {
         this->Nor = false;
         this->Not1 = false;
         this->Not2 = false;
-        this->Flip = false;
-        this->Flop = false;
+        this->Flip1 = false;
+        this->Flop1 = false;
+        this->Flip2 = false;
+        this->Flop2 = false;
         this->Ay = false;
         this->Bee = false;
     }
@@ -39,6 +43,22 @@ struct logicBlock {
         this->Ay = (A >= 1);
         this->Bee = (B >= 1);
     }
+
+    void FLIPFLOP1(float A) {
+        if ((A >= 1) && this->Flip1) {
+            this->Flop1 = !this->Flop1;
+            this->Flip1 = false;
+        }
+        this->Flip1 = (A < 1);
+    }
+    void FLIPFLOP2(float B) {
+        if ((B >= 1) && this->Flip2) {
+            this->Flop2 = !this->Flop2;
+            this->Flip2 = false;
+        }
+        this->Flip2 = (B < 1);
+    }
+
     void process() {
         this->And = (this->Ay) && (this->Bee);
         this->Xor = (this->Ay || this->Bee) && !this->And;
@@ -46,27 +66,51 @@ struct logicBlock {
         this->Nor = !(this->Ay || this->Bee);
         this->Not1 = !(this->Ay);
         this->Not2 = !(this->Bee);
+        FLIPFLOP1(this->Ay);
+        FLIPFLOP2(this->Bee);
     }
+    //if paired, results for this block will cascade with results from the previous block
     void processPair(logicBlock* pair) {
         if (pair) {
-            this->And = (this->Ay) && (pair->And);
-            this->Xor = (this->Ay || pair->Xor) && !this->And;
+            this->And = (this->Ay) && (pair->getAnd());
+            this->Xor = (this->Ay || pair->getXor()) && !this->And;
             this->Nand = !this->And;
-            this->Nor = !(this->Ay || pair->Nor);
+            this->Nor = !(this->Ay || pair->getNor());
             this->Not1 = !(this->Ay);
-            this->Not2 = !(pair->Not2);
+            this->Not2 = !(pair->getNot2());
+            FLIPFLOP1(this->Ay);
+            FLIPFLOP2(pair->getFlop2());
         }
         else {
             process();
         }
     }
 
-    void FLIPFLOP(float A) {
-        if ((A >= 1) && this->Flip) {
-            this->Flop = !this->Flop;
-            this->Flip = false;
-        }
-        this->Flip = (A < 1);
+    
+    //getters for desired outputs
+    bool getAnd() {
+        return this->And;
+    }
+    bool getXor() {
+        return this->Xor;
+    }
+    bool getNand() {
+        return this->Nand;
+    }
+    bool getNor() {
+        return this->Nor;
+    }
+    bool getNot1() {
+        return this->Not1;
+    }
+    bool getNot2() {
+        return this->Not2;
+    }
+    bool getFlop1() {
+        return this->Flop1;
+    }
+    bool getFlop2() {
+        return this->Flop2;
     }
 
     void reset() {
@@ -76,8 +120,10 @@ struct logicBlock {
         this->Nor = false;
         this->Not1 = false;
         this->Not2 = false;
-        this->Flip = false;
-        this->Flop = false;
+        this->Flip1 = false;
+        this->Flop1 = false;
+        this->Flip2 = false;
+        this->Flop2 = false;
         this->Ay = false;
         this->Bee = false;
     }
@@ -89,7 +135,6 @@ struct LedgerModule : Module
         NUM_PARAMS
 	};
     enum InputIds {
-
         ENUMS(LETTERS_INPUT, 10),
         NUM_INPUTS
 	};
@@ -99,8 +144,8 @@ struct LedgerModule : Module
         ENUMS(XORS_OUTPUT, 5),
         ENUMS(NANDS_OUTPUT, 5),
         ENUMS(NORS_OUTPUT, 5),
-        ENUMS(NOTS_OUTPUT, 6),
-        ENUMS(FLIPFLOPS_OUTPUT, 4),
+        ENUMS(NOTS_OUTPUT, 5),
+        ENUMS(FLIPFLOPS_OUTPUT, 5),
         NUM_OUTPUTS
 	};
     enum LightIds {
@@ -108,8 +153,8 @@ struct LedgerModule : Module
         ENUMS(XOR_LIGHTS, 5),
         ENUMS(NAND_LIGHTS, 5),
         ENUMS(NOR_LIGHTS, 5),
-        ENUMS(NOT_LIGHTS, 6),
-        ENUMS(FLOP_LIGHTS, 4),
+        ENUMS(NOT_LIGHTS, 5),
+        ENUMS(FLOP_LIGHTS, 5),
         NUM_LIGHTS
     };
 
@@ -119,7 +164,22 @@ struct LedgerModule : Module
 
     LedgerModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+   
+        std::string letters[10] = { "A - ", "B - ", "C - ", "D - ", "E - ", "F - ", "G - ", "H - ", "I - ", "J - " };
+        for (int i = 0; i < 10; ++i) {
+            std::string num = std::to_string((i / 2) + 1);
+            configInput(LETTERS_INPUT + i, letters[i] + num);
+        }
+        for (int j = 0; j < 5; ++j) {
+            std::string num = std::to_string(j + 1);
+            configOutput(ANDS_OUTPUT + j, "And - " + num);
+            configOutput(XORS_OUTPUT + j, "Xor - " + num);
+            configOutput(NANDS_OUTPUT + j, "Nand - " + num);
+            configOutput(NORS_OUTPUT + j, "Nor - " + num);
+            configOutput(NOTS_OUTPUT + j, "Not - " + num);
+            configOutput(FLIPFLOPS_OUTPUT + j, "FlipFlop - " + num);
 
+        }
         #include "Theme/setDefaultInit.h"
     }
 
@@ -177,19 +237,12 @@ struct LedgerModule : Module
     void Lights(const ProcessArgs& args) {
 
         for (int i = 0; i < 5; ++i) {
-            lights[AND_LIGHTS + i].setBrightness(blocks[i].And);
-            lights[XOR_LIGHTS + i].setBrightness(blocks[i].Xor);
-            lights[NAND_LIGHTS + i].setBrightness(blocks[i].Nand);
-            lights[NOR_LIGHTS + i].setBrightness(blocks[i].Nor);
-        }
-        for (int i = 0; i < 6; ++i) {
-            if (i == 1) i = 2;
-            int ind = (i >= 2) ? i - 1 : i;
-            lights[NOT_LIGHTS + i].setBrightness(blocks[ind].Not1);
-        }
-        lights[NOT_LIGHTS + 1].setBrightness(blocks[0].Not2);
-        for (int i = 0; i < 4; ++i) {
-            lights[FLOP_LIGHTS + i].setBrightness(blocks[i + 1].Flop);
+            lights[AND_LIGHTS + i].setBrightness(blocks[i].getAnd());
+            lights[XOR_LIGHTS + i].setBrightness(blocks[i].getXor());
+            lights[NAND_LIGHTS + i].setBrightness(blocks[i].getNand());
+            lights[NOR_LIGHTS + i].setBrightness(blocks[i].getNor());
+            lights[NOT_LIGHTS + i].setBrightness(blocks[i].getNot1());
+            lights[FLOP_LIGHTS + i].setBrightness(blocks[i].getFlop2());
         }
     }
 
@@ -198,15 +251,20 @@ struct LedgerModule : Module
         float Avolt = (isinA) ? inputs[LETTERS_INPUT + 0].getVoltage(0) : 0.f;
         float Bvolt = (isinB) ? inputs[LETTERS_INPUT + 1].getVoltage(0) : 0.f;
 
-        float Volts[8];
-        for (int i = 0; i < 8; ++i) {
-            Volts[i] = (ins[i]) ? inputs[LETTERS_INPUT + (i + 2)].getVoltage(0) : blocks[i / 2].Flop;
-        }
-
         blocks[0].AnB(Avolt, Bvolt);
         blocks[0].process();
-        blocks[0].FLIPFLOP(Avolt);
 
+        float Volts[8];
+        for (int i = 0; i < 4; ++i) {
+            //start at letters 2 & 3
+            int ia = i * 2;
+            int ib = ia + 1;
+            //if top(even) is no input set Volt to NOT of block before
+            //if bottom(odd) is no input set Volt to FLOP of block before
+            Volts[ia] = (ins[ia]) ? inputs[LETTERS_INPUT + (ia + 2)].getVoltage(0) : blocks[i].getFlop1();
+            Volts[ib] = (ins[ib]) ? inputs[LETTERS_INPUT + (ib + 2)].getVoltage(0) : blocks[i].getFlop2();
+        }
+        //run nested process on blocks, only nesting if at least one input if disconnected
         for (int i = 1; i < 5; ++i) {
             int evenindex = (i - 1) * 2;
             logicBlock* pairBlock = nullptr;
@@ -214,22 +272,21 @@ struct LedgerModule : Module
             
             blocks[i].AnB(Volts[evenindex], Volts[evenindex + 1]);
             blocks[i].processPair(pairBlock);
-            blocks[i].FLIPFLOP((ins[evenindex + 1]) ? Volts[evenindex + 1] : Volts[evenindex]);
         }
 
-        outputs[ANDS_OUTPUT + 0].setVoltage(blocks[0].And * 10.f, 0);
-        outputs[XORS_OUTPUT + 0].setVoltage(blocks[0].Xor * 10.f, 0);
-        outputs[NANDS_OUTPUT + 0].setVoltage(blocks[0].Nand * 10.f, 0);
-        outputs[NORS_OUTPUT + 0].setVoltage(blocks[0].Nor * 10.f, 0);
-        outputs[NOTS_OUTPUT + 0].setVoltage(blocks[0].Not1 * 10.f, 0);
-        outputs[NOTS_OUTPUT + 1].setVoltage(blocks[0].Not2 * 10.f, 0);
+        outputs[ANDS_OUTPUT + 0].setVoltage(blocks[0].getAnd() * 10.f, 0);
+        outputs[XORS_OUTPUT + 0].setVoltage(blocks[0].getXor() * 10.f, 0);
+        outputs[NANDS_OUTPUT + 0].setVoltage(blocks[0].getNand() * 10.f, 0);
+        outputs[NORS_OUTPUT + 0].setVoltage(blocks[0].getNor() * 10.f, 0);
+        outputs[NOTS_OUTPUT + 0].setVoltage(blocks[0].getNot1() * 10.f, 0);
+        outputs[FLIPFLOPS_OUTPUT + 0].setVoltage(blocks[0].getFlop2() * 10.f, 0);
         for (int i = 1; i < 5; ++i) {
-            outputs[ANDS_OUTPUT + i].setVoltage(blocks[i].And * 10.f, 0);
-            outputs[XORS_OUTPUT + i].setVoltage(blocks[i].Xor * 10.f, 0);
-            outputs[NANDS_OUTPUT + i].setVoltage(blocks[i].Nand * 10.f, 0);
-            outputs[NORS_OUTPUT + i].setVoltage(blocks[i].Nor * 10.f, 0);
-            outputs[NOTS_OUTPUT + (i + 1)].setVoltage(blocks[i].Not1 * 10.f, 0);
-            outputs[FLIPFLOPS_OUTPUT + (i - 1)].setVoltage(blocks[i].Flop * 10.f, 0);
+            outputs[ANDS_OUTPUT + i].setVoltage(blocks[i].getAnd() * 10.f, 0);
+            outputs[XORS_OUTPUT + i].setVoltage(blocks[i].getXor() * 10.f, 0);
+            outputs[NANDS_OUTPUT + i].setVoltage(blocks[i].getNand() * 10.f, 0);
+            outputs[NORS_OUTPUT + i].setVoltage(blocks[i].getNor() * 10.f, 0);
+            outputs[NOTS_OUTPUT + i].setVoltage(blocks[i].getNot1() * 10.f, 0);
+            outputs[FLIPFLOPS_OUTPUT + i].setVoltage(blocks[i].getFlop2() * 10.f, 0);
         }
     }
 
@@ -423,30 +480,17 @@ struct LedgerPanelWidget : ModuleWidget {
             addChild(createLightCentered<XORLight>(Vec(OglyphLaneX, glyphRow1Y + (i * laneYdist)), module, LedgerModule::XOR_LIGHTS + i));
             addChild(createLightCentered<NANDLight>(Vec(AglyphLaneX, glyphRow2Y + (i * laneYdist)), module, LedgerModule::NAND_LIGHTS + i));
             addChild(createLightCentered<NORLight>(Vec(OglyphLaneX, glyphRow2Y + (i * laneYdist)), module, LedgerModule::NOR_LIGHTS + i));
+            addChild(createLightCentered<NOTLight>(Vec(NglyphLaneX, glyphRow1Y + (i * laneYdist)), module, LedgerModule::NOT_LIGHTS + i));
+            addChild(createLightCentered<FLOPLight>(Vec(NglyphLaneX, glyphRow2Y + (i * laneYdist)), module, LedgerModule::FLOP_LIGHTS + i));
 
             addOutput(createOutput<PurplePort>(Vec(andLaneX, row1StartY + (i * laneYdist)), module, LedgerModule::ANDS_OUTPUT + i));
             addOutput(createOutput<PurplePort>(Vec(orLaneX, row1StartY + (i * laneYdist)), module, LedgerModule::XORS_OUTPUT + i));
             addOutput(createOutput<PurplePort>(Vec(andLaneX, row2StartY + (i * laneYdist)), module, LedgerModule::NANDS_OUTPUT + i));
             addOutput(createOutput<PurplePort>(Vec(orLaneX, row2StartY + (i * laneYdist)), module, LedgerModule::NORS_OUTPUT + i));
+            addOutput(createOutput<PurplePort>(Vec(notLaneX, row1StartY + (i * laneYdist)), module, LedgerModule::NOTS_OUTPUT + i));
+            addOutput(createOutput<PurplePort>(Vec(notLaneX, row2StartY + (i * laneYdist)), module, LedgerModule::FLIPFLOPS_OUTPUT + i));
         }
-        for (int i = 0; i < 6; ++i) {
-            //skip the offset one           
-            if (i == 1) i = 2;
-            int ind = (i >= 2) ? i - 1: i;
-            addChild(createLightCentered<NOTLight>(Vec(NglyphLaneX, glyphRow1Y + (ind * laneYdist)), module, LedgerModule::NOT_LIGHTS + i));
 
-            addOutput(createOutput<PurplePort>(Vec(notLaneX, row1StartY + (ind * laneYdist)), module, LedgerModule::NOTS_OUTPUT + i));
-        }
-        //the offset one
-        addChild(createLightCentered<NOTLight>(Vec(NglyphLaneX, glyphRow2Y), module, LedgerModule::NOT_LIGHTS + 1));
-
-        addOutput(createOutput<PurplePort>(Vec(notLaneX, row2StartY), module, LedgerModule::NOTS_OUTPUT + 1));
-
-        for (int i = 0; i < 4; ++i) {
-            addChild(createLightCentered<FLOPLight>(Vec(NglyphLaneX, glyphRow2Y + ((i + 1) * laneYdist)), module, LedgerModule::FLOP_LIGHTS + i));
-
-            addOutput(createOutput<PurplePort>(Vec(notLaneX, row2StartY + ((i + 1) * laneYdist)), module, LedgerModule::FLIPFLOPS_OUTPUT + i));
-        }
         if (module) {
             //must be called 'logoPos'for all modules
             Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);

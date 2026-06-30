@@ -11,7 +11,7 @@
 
 using namespace LydD;
 
-static const int maxPolyphony = 16;
+const int maxPolyphony = 16;
 
 //actual semitone of one panel- if C0,C#1, D-10, Eb15, E4, F-7, F#-6, G7,G#8, A-3, A#-2, B11 
 //in hex format, D, F, F#/Gb, A, and A#/Bb are from the octave below, so -12, and Eb is from oct above, so +12
@@ -155,7 +155,7 @@ struct QuantModule : Module
     };
     enum LightIds {
         ENUMS(PLAYING_LIGHT, OCT),
-        MODE_LIGHT,
+        ENUMS(PAGE_LIGHT, 3),
         NUM_LIGHTS
     };
 
@@ -185,6 +185,7 @@ struct QuantModule : Module
     int Page = 0;
     float Transpose = 0.f;
     float Transpar = 0.f;
+    float TransHold = 0.f;
     bool gothere = false; //debug, ask if u got here
     float quants[4];
 
@@ -211,24 +212,23 @@ struct QuantModule : Module
         configParam(BANK_PARAM, 0.f, 7.f, 0.f, "Bank Select");
         paramQuantities[BANK_PARAM]->snapEnabled = true;
 
+        configInput(POLY_INPUT, "Polyphonic Note Picker");
+        configInput(TRANS_INPUT, "Transpose");
+        configInput(BANK_INPUT, "Bank");
 
-
+        for (int i = 0; i < 4; ++i) {
+            configInput(LANE_INPUT + i, "Pitch");
+            configOutput(LANE_OUTPUT + i, "Quantized");
+            configOutput(NEWNOTE_OUTPUT + i, "New Note Trigger");
+        }
+        std::string note = "Note - ";
+        std::string pitch[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         for (int p = 0; p < OCT; ++p) {
-            configSwitch(KEY_BUTTON + p, 0.f, 1.f, 0.f, "Note Button");
+            configSwitch(KEY_BUTTON + p, 0.f, 1.f, 0.f, note + pitch[p]);
         }
         QT = new (NotePicker);
 
         clear();
-
-        /*std::string which[4]{ "One", "Two", "Three", "Four" };
-        for (int i = 0; i < 4; ++i) {
-            std::string This = "This - ";
-            This += which[i];
-            configInput(THIS_INPUTS + i, This);
-            std::string That = "That - ";
-            That += which[i];
-            configInput(THAT_INPUTS + i, That);
-        }*/
        
     }
     ~QuantModule() {
@@ -279,8 +279,10 @@ struct QuantModule : Module
         if (changemode) {
             QT->semiSimple(BasicAllowed);
             QT->semiPage(HexEnabled);
+            //when changing to page mode, hold whatever transpose was already set by the knob
+            TransHold = Transpar / 12.f;
         }
-        lights[MODE_LIGHT].setBrightness(PageMode);
+        lights[PAGE_LIGHT + 2].setBrightness(PageMode);
     }
     void setBank() {
         int lastbank = CurrentBank;
@@ -437,7 +439,7 @@ struct QuantModule : Module
     void PageQuantize(const ProcessArgs& args) {
        
 
-        Transpose = (inputs[TRANS_INPUT].isConnected() ? inputs[TRANS_INPUT].getVoltage(0) : 0.f);
+        Transpose = TransHold + (inputs[TRANS_INPUT].isConnected() ? inputs[TRANS_INPUT].getVoltage(0) : 0.f);
         for (int i = 0; i < 4; ++i) {
             _notePulse[i].process(args.sampleTime);
             float quantprev = quants[i];
@@ -589,6 +591,12 @@ struct HexLight : SvgWidget {
    
 };
 
+struct PageLight : Components::TColorSVGLight {
+    PageLight() {
+        this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/QuantLights/pageLight.svg")));
+    }
+};
+
 using namespace LydD::Components;
 struct QuantPanelWidget : ModuleWidget {
 
@@ -608,7 +616,6 @@ struct QuantPanelWidget : ModuleWidget {
         addParam(createParam<VCVButton>(Vec(137.309, 40.287), module, QuantModule::Q_MODE_BUTTON));
         addParam(createParam<RoundSmallBlackKnob>(Vec(143, 132.5), module, QuantModule::BANK_PARAM));
 
-        addChild(createLightCentered<SmallLight<BlueLight>>(Vec(164, 49), module, QuantModule::MODE_LIGHT));
         std::vector<Vec> notePos = {
             (Vec(14.398, 99.621)),  //C
             (Vec(71.660, 99.621)), //C#
@@ -648,16 +655,12 @@ struct QuantPanelWidget : ModuleWidget {
 
 
         if (module) {
-            HexLight* quantlight1 = createWidget<HexLight>(notePos[0]);
-            quantlight1->Note = 0;
-            quantlight1->Svg("res/components/HexLight32px.svg");
-            quantlight1->module = module;
-            addChild(quantlight1);
+            addChild(createLight<PageLight>(Vec(1.793, 218.272), module, QuantModule::PAGE_LIGHT));
 
-            for (int note = 1; note < OCT; ++note) {
+            for (int note = 0; note < OCT; ++note) {
                 HexLight* quantlight = createWidget<HexLight>(notePos[note]);
                 quantlight->Note = note;
-                quantlight->Svg("res/components/HexLight32px.svg");
+                quantlight->Svg("res/QuantLights/HexLight32px.svg");
                 quantlight->module = module;
                 addChild(quantlight);
             }
