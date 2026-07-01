@@ -69,14 +69,18 @@ private:
     int timeSignatureBeats = 4.f;
     int timeSignatureQuaver = 4.f;
 
-
-
     std::vector<double> averageTick; // last 4 'time-between-pulse's to average out
     rack::dsp::BooleanTrigger clockphaseResets[NUM_CLOCKS]; // 0 is base clock
     rack::dsp::BooleanTrigger measBResets[NUM_MB_CLOCKS]; //measurebound triggers
     rack::dsp::PulseGenerator outputPulses[NUM_CLOCKS]; // 0 is base clock
     rack::dsp::PulseGenerator measBPulses[NUM_MB_CLOCKS]; //measurebound pulses
     rack::dsp::Timer externalTimer;
+
+    void clockAdvance(int which) {
+        ++clocksTick[which];
+        clocksTick[which] %= 2520;  //2520 divisible by 1 - 9
+    }
+
 
 public:
 
@@ -138,10 +142,6 @@ public:
             measBPulses[i].reset();
         }
     }
-    void clockAdvance(int which) {
-        ++clocksTick[which];
-        clocksTick[which] %= 2520;  //2520 divisible by 1 - 9
-    }
 
     void phaseCProcess(double* fdst, double* fsrc, double div, double* phdst, bool* psetdst, rack::dsp::BooleanTrigger* rst) {
         *fdst = *fsrc / div;
@@ -156,17 +156,12 @@ public:
 
     void phaseAccum(double samplerate) {
 
-        /*for (int i = 0; i < NUM_CLOCKS; ++i) {
-            incrementPhase(clocksFreq[i], samplerate, &clocksPhase[i]);
-        }*/
-
         if (!isextConnect) {
             bool internalTick = clocksPhase[THRU_QUARTER] > 0.f && clocksPhase[THRU_QUARTER] < 1.f;
             phaseSet[THRU_QUARTER] = clockphaseResets[THRU_QUARTER].process(internalTick);
             externalTimer.reset();
         }
    
-
         double quavnorm = clocksPhase[THRU_QUARTER] * _2PIto1; //scale to 1
         double quavcurve = lerp(1., quavnorm, 0., 1., Swing); //curve, quasi exp->log
 
@@ -276,9 +271,14 @@ public:
     }
 
 
-    void externalBPMgen(double sampletime, bool connected, double inputgate) {
+    void externalBPMgen(double sampletime, bool connected, bool running, double inputgate) {
         isextConnect = connected;
-        if (isextConnect) {
+        if (!running) {
+            externalTimer.reset();
+            return;
+        }
+        //also only update average while clock is actually running so it doesnt count downtime
+        if (isextConnect && running) {
             externalTimer.process(sampletime);
             bool externalTick = inputgate >= 1.f;
             phaseSet[THRU_QUARTER] = clockphaseResets[THRU_QUARTER].process(externalTick);
@@ -451,17 +451,16 @@ struct ClockModule : Module
     }
 
     int currentPolyphony = 1;
-    int currentBanks = 1;
     int loopCounter = 0;
     bool isCVin = false;
     bool isExtConnect = false;
     float timesigbeats = 4.f;
     float timesigquaver = 4.f;
     float phaseShape = 0.f;
-    float resetSet = false;
-    float resetReset = false;
-    float runSet = false;
-    float runReset = false;
+    bool resetSet = false;
+    bool resetReset = false;
+    bool isRunning = false;
+    bool runReset = false;
     bool resetconnect = false;
     bool runconnect = false;
     bool isPWConnect = false;
@@ -508,16 +507,16 @@ struct ClockModule : Module
 
        
         if (runconnect) {
-            latchButton(inputs[RUN_INPUT].getVoltage(0) + 0.1f, &runSet, &runReset);
+            latchButton(inputs[RUN_INPUT].getVoltage(0) + 0.1f, &isRunning, &runReset);
         }
         else {
-            latchButton(params[RUN_BUTTON_PARAM].value, &runSet, &runReset);
+            latchButton(params[RUN_BUTTON_PARAM].value, &isRunning, &runReset);
         }
 
     }
 
     void doLights(const ProcessArgs& args) {
-        lights[RUN_LIGHT].setBrightness(runSet);
+        lights[RUN_LIGHT].setBrightness(isRunning);
         for (int l = 0; l < 6; ++l) {
             lights[PHASE_LIGHTS + l].setBrightness(phaseOut[l] / 10.f);
         }
@@ -538,14 +537,14 @@ struct ClockModule : Module
         float BPMCVin = inputs[BPM_CV_INPUT].getVoltage(0);
         float ExtCVin = inputs[EXT_GATE_INPUT].getVoltage(0);
         clocks->setBPMinput(isCVin, BPMCVin);
-        clocks->externalBPMgen(args.sampleTime, isExtConnect, ExtCVin);
+        clocks->externalBPMgen(args.sampleTime, isExtConnect, isRunning, ExtCVin);
         clocks->setfundFreq(); 
 
         _runPulse.process(args.sampleTime);
         _resetPulse.process(args.sampleTime);
         
-        bool isRun = _Run.process(runSet);
-        bool isStop = _Stop.process(!runSet);
+        bool isRun = _Run.process(isRunning);
+        bool isStop = _Stop.process(!isRunning);
         if (isRun || isStop) {
             _runPulse.trigger(0.08);
         }
@@ -553,7 +552,7 @@ struct ClockModule : Module
         float clocksOut[13] = { 0.f };
         float measBout[6] = { 0.f };
         
-        if (runSet) {
+        if (isRunning) {
             clocks->makePulses(args.sampleTime);
             clocks->phaseAccum(args.sampleRate);
 
@@ -619,7 +618,7 @@ struct ClockModule : Module
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_t* panelJ = json_integer(currPanel);
-        json_t* RunningJ = json_boolean(runSet);
+        json_t* RunningJ = json_boolean(isRunning);
         json_object_set_new(rootJ, "Panel", panelJ);
         json_object_set_new(rootJ, "Running", RunningJ);
 
@@ -631,7 +630,7 @@ struct ClockModule : Module
         if (panelJ) currPanel = json_integer_value(panelJ);
         json_t* RunningJ = json_object_get(rootJ, "Running");
         if (RunningJ) {
-            runSet = json_boolean_value(RunningJ);
+            isRunning = json_boolean_value(RunningJ);
 
             clocks->reset();
         }
@@ -687,8 +686,8 @@ struct ClockWidget : ClockDisplay {
                 break;
             }
             }
-
-            tempo = module->clocks->getFundFreq() * 60;
+            int tempadj = std::floor((module->clocks->getFundFreq() * 60) + 0.5f);
+            tempo = tempadj ;
         }
         text = rack::string::f("%d", tempo);
     }
