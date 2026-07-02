@@ -352,7 +352,7 @@ namespace Filter {
 		using BA = BaseDoubleRing<U, S>;
 		FFComb() {}
 		~FFComb() {}
-		void setPars(T freq, T FF, float sr, LydD::Frequency_Types freqtype = 0, bool neg = false) {
+		void setPars(T freq, T FF, float sr, LydD::Frequency_Types freqtype = LydD::Frequency_Types::SAMPLES, bool neg = false) {
 			DC::inverting(neg);
 			DC::setFreq(freq, freqtype, sr);
 			DC::setGain(FF);			
