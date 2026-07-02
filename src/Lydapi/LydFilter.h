@@ -197,8 +197,9 @@ namespace Filter {
 		}
 		inline virtual T pull() {
 			size_t ri = this->rh & M;
-			return this->Buf[ri];
 			this->rh.store(this->rh + 1);
+			return this->Buf[ri];
+			
 		}
 	};
 

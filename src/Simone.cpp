@@ -456,8 +456,8 @@ struct SimoneModule : Module
                 Xoutend = dcRemoveX.highpass();
                 Youtend = dcRemoveY.highpass();
             }
-            Xoutend = filty[0].process(Xoutend * 10.f, drive);
-            Youtend = filty[1].process(Youtend * 10.f, drive);
+            Xoutend = filty[0].process(Xoutend * 12.f, drive);
+            Youtend = filty[1].process(Youtend * 12.f, drive);
             
             outputs[X_1_OUTPUT].setVoltage(Xoutend[0], 0);
             outputs[Y_1_OUTPUT].setVoltage(Youtend[0], 0);
