@@ -21,8 +21,8 @@ const int hexdown[OCT] = { 0, 0, -12, 12, 0, -12, -12, 0, 0, -12, -12, 0 };
 struct HexButton : app::SvgSwitch {
     HexButton() {
         momentary = true;
-        addFrame(Svg::load(asset::plugin(pluginInstance, "res/components/HexButton32px_0.svg")));
-        addFrame(Svg::load(asset::plugin(pluginInstance, "res/components/HexButton32px_1.svg")));
+        addFrame(Svg::load(asset::plugin(pluginInstance, "res/QuantLights/HexButton32px_0.svg")));
+        addFrame(Svg::load(asset::plugin(pluginInstance, "res/QuantLights/HexButton32px_1.svg")));
     }
 };
 
