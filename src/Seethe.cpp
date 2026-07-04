@@ -1,6 +1,5 @@
 #include "plugin.hpp"
 
-#include "Lydapi/LydFFT.h"
 #define MODULE_NAME SeetheModule
 #define PANEL "Seethe_panel.svg"
 #define HP 12

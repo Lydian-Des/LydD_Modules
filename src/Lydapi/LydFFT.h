@@ -356,7 +356,7 @@ namespace FFTStuff {
                 //make sure to close the thread when the program terminates
                 if (this->Quitting) return;
                 //if (this->inFull(this->currentWindow)) {
-                lock.lock();
+                //lock.lock();
                     this->takeScaledFFT(this->inWindow[this->currentWindow].dat, this->FFFreqs.dat);
 
                     //remove potentially unwanted info from altered bins
@@ -379,7 +379,7 @@ namespace FFTStuff {
                     this->currentWindow.store((this->currentWindow.load() + 1) % this->HN);
                     this->FFTReady.store(false);
                 //}
-                lock.unlock();
+                //lock.unlock();
             }
         }
 
