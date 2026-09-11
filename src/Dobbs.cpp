@@ -51,9 +51,9 @@ public:
         this->Shape = shape;
     }
     //build in retrigger smoothing
-    void Trigger(float trig, bool sustain, float sampletime) {
-        bool triggered = this->_trigger.process(trig);
-        this->Sustaining = (this->Sustain) ? sustain : false;
+    void Trigger(bool gate, float sampletime, bool* istrig = nullptr) {
+        bool triggered = this->_trigger.process(gate);
+        this->Sustaining = (this->Sustain) ? gate : false;
         //capture total time between triggers
         TotalTime = _totalTime.process(sampletime);
         if (triggered) {
@@ -64,14 +64,15 @@ public:
             this->Attacking = true;
             _totalTime.reset();
         }
-
+        //leave it to comsumer to set back to false
+        if (istrig) *istrig |= triggered;
         return;
     }
     void triggerCompanion(Envelope* companion, float delaytime, float sampletime) {
         float comphase = this->TotalTime;
         //float totalphase = (this->Attacking) ? this->Aphase : this->Rphase + 1.f;
-        float trigcompanion = (comphase >= delaytime) ? 1.f : 0.f;
-        companion->Trigger(trigcompanion, this->Sustaining, sampletime);
+        float trigcompanion = (comphase >= delaytime) || this->Sustaining ? 1.f : 0.f;
+        companion->Trigger(trigcompanion, sampletime);
     }
     void AttackPhase(float* Value, float sampletime) {
         if (this->Attacking) {
@@ -239,6 +240,7 @@ struct DobbsModule : Module
     int currentBanks = 1;
     int loopCounter = 0;
     float Gates[2] = { 0.f, 0.f };
+    bool isTriggered[2] = { false, false };
     float EnvelopeMain[2] = { 0.f, 0.f };
     float EnvelopeCompanion[2] = { 0.f, 0.f };
     float ASRset[2] = { false, false };
@@ -247,7 +249,10 @@ struct DobbsModule : Module
     float spdFresetM[2] = { false, false };
     float spdFsetC[2] = { false, false };
     float spdFresetC[2] = {false, false};
-   
+    float Velocity[2] = { 0.f, 0.f };
+    bool isVelocity = false;
+    bool isinGate[2] = { false, false };
+
     void process(const ProcessArgs& args) override {
 
       
@@ -279,7 +284,8 @@ struct DobbsModule : Module
             latchButton(params[MODE_BUTTON_PARAM + i].value, &ASRset[i], &ASRunset[i]);
             latchButton(params[SPEED_FMAIN_BUTTON_PARAM + i].value, &spdFsetM[i], &spdFresetM[i]);
             latchButton(params[SPEED_FCOMP_BUTTON_PARAM + i].value, &spdFsetC[i], &spdFresetC[i]);
-            Gates[i] = (inputs[GATE_INPUT + i].isConnected()) ? inputs[GATE_INPUT + i].getVoltage(0) : 0.f;
+            isinGate[i] = inputs[GATE_INPUT + i].isConnected();
+            
         }
         
     }
@@ -292,21 +298,38 @@ struct DobbsModule : Module
             float releasetime2 = rack::math::clamp(params[RCOMP_PARAM + i].value + ((inputs[RCOMP_INPUT + i].isConnected()) ? (inputs[RCOMP_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.0001f, 1.f);
             float shape = rack::math::clamp(params[SHAPE_PARAM + i].value * ((inputs[SHAPE_INPUT + i].isConnected()) ? (inputs[SHAPE_INPUT + i].getVoltage(0) / 5.f) : 1.f), -1.f, 1.f);
             float delay = rack::math::clamp(params[DELAY_PARAM + i].value + abs((inputs[DELAY_INPUT + i].isConnected()) ? (inputs[DELAY_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.001f, 1.f);
+            
+            float gateprev = Gates[i];
+            Gates[i] = (isinGate[i]) ? inputs[GATE_INPUT + i].getVoltage(0) : 0.f;
+            
             ENVmain[i].setAttackRelease(spdFsetM[i], attacktime1, releasetime1, ASRset[i]);
             ENVcomp[i].setAttackRelease(spdFsetC[i], attacktime2, releasetime2, ASRset[i]);
             ENVmain[i].setShape(shape);
             ENVcomp[i].setShape(shape);
-            ENVmain[i].Trigger(Gates[i], Gates[i] > 0.5, args.sampleTime);
+            bool high = Gates[i] > 0.5f;
+            ENVmain[i].Trigger(high, args.sampleTime, &isTriggered[i]);
             ENVmain[i].triggerCompanion(&ENVcomp[i], delay, args.sampleTime);
+            if (isTriggered[i]) {
+                //if gates have some slew, wait til they reach their maximum to stop assigning velocity
+                if (gateprev >= Gates[i]) {
+                    Velocity[i] = Gates[i];
+                    isTriggered[i] = false;
+                }
+
+            }
+
             ENVmain[i].AttackPhase(&EnvelopeMain[i], args.sampleTime);
             ENVmain[i].ReleasePhase(&EnvelopeMain[i], args.sampleTime);
             ENVcomp[i].AttackPhase(&EnvelopeCompanion[i], args.sampleTime);
             ENVcomp[i].ReleasePhase(&EnvelopeCompanion[i], args.sampleTime);
+
             float EOCmain = (ENVmain[i].isEOC(args.sampleTime)) * 10.f;
             float EOCcomp = (ENVcomp[i].isEOC(args.sampleTime)) * 10.f;
-            outputs[ENVMAIN_OUTPUT + i].setVoltage(EnvelopeMain[i] * 10.f, 0);
+            float peak = isVelocity ? Velocity[i] : 10.f;
+            //mult by gate voltage for automatic velocity
+            outputs[ENVMAIN_OUTPUT + i].setVoltage(EnvelopeMain[i] * peak, 0);
             outputs[EOCMAIN_OUTPUT + i].setVoltage(EOCmain, 0);
-            outputs[ENVCOMP_OUTPUT + i].setVoltage(EnvelopeCompanion[i] * 10.f, 0);
+            outputs[ENVCOMP_OUTPUT + i].setVoltage(EnvelopeCompanion[i] * peak, 0);
             outputs[EOCCOMP_OUTPUT + i].setVoltage(EOCcomp, 0);
 
         }
@@ -380,6 +403,7 @@ struct DobbsModule : Module
         json_t* SPDMAIN2J = json_boolean(spdFsetM[1]);
         json_t* SPDCOMP1J = json_boolean(spdFsetC[0]);
         json_t* SPDCOMP2J = json_boolean(spdFsetC[1]);
+        json_t* VelocityJ = json_boolean(isVelocity);
 
         json_object_set_new(rootJ, "ASR1", ASR1J);
         json_object_set_new(rootJ, "ASR2", ASR2J);
@@ -387,6 +411,7 @@ struct DobbsModule : Module
         json_object_set_new(rootJ, "SPEEDMAIN2", SPDMAIN2J);
         json_object_set_new(rootJ, "SPEEDCOMP1", SPDCOMP1J);
         json_object_set_new(rootJ, "SPEEDCOMP2", SPDCOMP2J);
+        json_object_set_new(rootJ, "Velocity", VelocityJ);
 
         return rootJ;
     }
@@ -402,12 +427,14 @@ struct DobbsModule : Module
         json_t* SPDMAIN2J = json_object_get(rootJ, "SPEEDMAIN2");
         json_t* SPDCOMP1J = json_object_get(rootJ, "SPEEDCOMP1");
         json_t* SPDCOMP2J = json_object_get(rootJ, "SPEEDCOMP2");
+        json_t* VelocityJ = json_object_get(rootJ, "Velocity");
         ASRset[0] = json_boolean_value(ASR1J);
         ASRset[1] = json_boolean_value(ASR2J);
         spdFsetM[0] = json_boolean_value(SPDMAIN1J);
         spdFsetM[1] = json_boolean_value(SPDMAIN2J);
         spdFsetC[0] = json_boolean_value(SPDCOMP1J);
         spdFsetC[1] = json_boolean_value(SPDCOMP2J);
+        isVelocity = json_boolean_value(VelocityJ);
     }
 
 };
@@ -529,6 +556,16 @@ struct DobbsPanelWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         DobbsModule* module = dynamic_cast<DobbsModule*>(this->module);
         assert(module);
+
+        menu->addChild(new MenuSeparator());
+
+        //wow checkbox lambdas, how unique
+        menu->addChild(createCheckMenuItem("Auto-Velocity", "Gate Voltage determines peak height",
+            [=]() {return module->isVelocity != false; },
+            [=]() {module->isVelocity ^= true; }
+        ));
+
+        menu->addChild(new MenuSeparator());
 
         #include "Theme/CreatePanelMenu.h"
     }

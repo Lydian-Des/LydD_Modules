@@ -9,25 +9,7 @@ static const int maxPolyphony = 1;
 
 using namespace LydD;
 
-//6th order approx of e^x
-//follows negative portion of sigmoid great, falls off above about +1.5
-//since sigmoid uses e^(-x) it follows the inverse is true for positive powers
-template<typename T = float>
-T EulerToPower(T x) {
-    const T coeffs[6] = { 1.f, 0.5f, 0.166666667f, 0.041666667f, 0.008333333f, 0.0013888889f };
-    T order[6];
-    for (int i = 0; i < 6; ++i) {
-        T xpow = x;
-        int k = 0;
-        //ratchet up powers of x
-        while (k < i) {
-            xpow *= x;
-            k++;
-        }
-        order[i] = xpow * coeffs[i];
-    }
-    return 1.f + order[0] + order[1] + order[2] + order[3] + order[4] + order[5];
-}
+
 
 template<typename T = float, int L = 1024>
 struct SaturateCurve {
@@ -166,6 +148,7 @@ struct SeetheModule : Module
     float curvePar[3] = { 0, 0, 0 };
     float mixPar[3] = { 0, 0, 0 };
 
+    float lastBand[3] = { 0, 0, 0 };
     float bandFreq[3] = { 0, 0, 0 };
     float bandZeroFreq[3] = { 450.f, 850.f, 1500.f };
     bool isinGlobal;
@@ -283,7 +266,9 @@ struct SeetheModule : Module
         //saturate each band
         float saturated[3];
         for (int s = 0; s < 3; ++s) {
-            float satur = _bands[s].process(dry + dryband[s]);
+            float bandRes = drive[s] > 5.f ? ((drive[s] - 5.f) / 80.f) : 0.f;
+            float feedback = lastBand[s] * bandRes;
+            float satur = _bands[s].process(dry + dryband[s] + feedback);
             satur *= drive[s];
 
             float mapped[3];
@@ -295,6 +280,7 @@ struct SeetheModule : Module
             _BandDCRem[s].process(saturated[s]);
             saturated[s] = _BandDCRem[s].highpass();
             saturated[s] = rack::math::crossfade(dry + dryband[s], saturated[s], mix[s]);
+            lastBand[s] = saturated[s];
             outputs[BAND_OUTPUT + s].setVoltage(saturated[s], 0);
         }
         float satgroup = (saturated[0] + saturated[1] + saturated[2]) / 3.f;

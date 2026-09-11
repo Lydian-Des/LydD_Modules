@@ -19,11 +19,15 @@ if (curr != prev) {
 		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/AltPanels/Red/" + panel)));
 		break;
 
-	case 4: // White
+	case 4: // Fruitiger
+		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/AltPanels/Fruitiger/" + panel)));
+		break;
+
+	case 5: // White
 		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/AltPanels/White/" + panel)));
 		break;
 
-	case 5: //Soulless
+	case 6: //Soulless
 		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/AltPanels/Soulless/" + panel)));
 		break;
 	}

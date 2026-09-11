@@ -1,21 +1,406 @@
 #pragma once
 
 #include "LydBase.h"
+#include "LydBuffers.h"
+#include "LydWindowFunc.h"
 #include <atomic>
-
+#include <array>
+#include <algorithm>
+using namespace LydD::Buffers;
+using namespace LydD::Windower;
 namespace LydD {
 namespace Delay {
-   
-    template <typename T = float>
-    T fractionalRead(T delay, size_t rdpt, T* Buf, size_t bSize) {
-        if (delay < 0) delay += bSize;
-        int oi = (int)delay;
-        float frac = delay - oi; //always portion from 0 - 1
-        return cubicLerp(Buf, rdpt, frac, bSize);
-        //return rack::math::crossfade(Buf[rdpt], Buf[(rdpt + 1) % bSize], frac);
-    }
+    
+
+    
+    //buffer types set at compile time
+    template <typename T = float, size_t S = 44100, size_t D = 2048, int N_CHAN = 2, 
+                            typename IN_TYPE = IndexDoubleRing<FrameStereo<T, N_CHAN>, S>, 
+                            typename OUT_TYPE = IndexDoubleRing<FrameStereo<T, N_CHAN>, D> >
+    struct CF_DelayLine {
+        //ints for easy iterating
+        static const int SI = S;
+        static const int DI = D;
+        static const int SS = S * 2;
+        static const int DD = D * 2;
+        const int dd = D / 2;
+
+        //buffers
+        IN_TYPE inBuf;
+        OUT_TYPE outBuf[2];
+        //window -- applied to output buffers
+        WindowArray<FrameStereo<T>, D> _blockWindow;
+
+        T fractionaldelay[N_CHAN];
+        size_t delayinSamples[N_CHAN];
+        size_t freezeLoop;
+
+        //update time slower than even the buffer switches, smoother
+        std::atomic<bool> buffer_switch;
+        rack::dsp::BooleanTrigger _switchTick;
+        const int max_ticks = 8;
+        int tick_count = 0;
+        bool updateTime = false;
+
+
+        T Wet[N_CHAN];
+
+        void clear() {
+            for (int b = 0; b < N_CHAN; ++b) {
+                Wet[b] = 0;
+            }
+
+            this->inBuf.clear();
+            this->outBuf[0].clear();
+            this->outBuf[1].clear();
+            this->buffer_switch.store(false);
+            this->_blockWindow.clearOutput();
+        }
+        /*void buf_delete() {
+            if (this->inBuf != nullptr) delete this->inBuf;
+            if (this->outBuf[1] != nullptr) delete this->outBuf[1];
+            if (this->outBuf[0] != nullptr) delete this->outBuf[0];
+        }*/
+        CF_DelayLine() {
+            //buf_delete();
+            //this->inBuf = std::make_unique<IN_TYPE>();
+            //this->outBuf[0] = std::make_unique<OUT_TYPE>();
+            //this->outBuf[1] = std::make_unique<OUT_TYPE>();
+            this->_blockWindow.generateWindow(Window_Types::HANN);
+            this->clear();
+        }
+        ~CF_DelayLine() {
+            //buf_delete();
+        }
+        //******Wrappers for the buffers internal functions*******//
+        //returns pointer to data from index (ind) behind current index w/ optional return of index value to given pointer ni
+        // to be copied onto output buffer 
+        virtual FrameStereo<T, N_CHAN>* read_input_data(size_t ind, size_t* ni = nullptr) {
+            return this->inBuf.ReadBlockFromIndex(ind, ni);
+
+        }
+        //use this with n of samples used (to keep buffer unFrozen - must be timed/sized right for good sound)
+        virtual void read_incr_input(size_t n = 1) {
+            this->inBuf.ReadBlockIncr(n);
+        }
+
+        //returns pointer to the currently writable buffer to copy data onto at Writehead -- DST/consumer/output
+        virtual FrameStereo<T, N_CHAN>* write_output_data() {
+            return this->outBuf[buffer_switch].WriteToBlock();
+
+        }
+
+        //must call this after write_output_data has been used and before any other functions of this buffer if you want things to work
+        virtual void write_incr_output(size_t n) {
+            this->outBuf[buffer_switch].WriteBlockIncr(n);
+
+        }
+
+        //to pull individual channel lanes from frame blocks pulled from different times
+        //each result frame is each successive channel from each succesive block
+        // e.g. 2 channel frame gets 2 framegroups, at one index
+        //    output channel 0 pulls from framegroup[0] channel[0]
+        //    output channel 1 pulls from framegroup[1] channel[1]
+        virtual void collate_frames(FrameStereo<T, N_CHAN>** framegroup, FrameStereo<T, N_CHAN>* output, int blksize) {
+            std::array<T, N_CHAN> collate[blksize];
+            //for each channel, run the pointed array pulling out each lane at a time
+            //i think this is better cache addressing nested loop than the other way around
+            for (int c = 0; c < N_CHAN; ++c) {
+                for (int b = 0; b < blksize; ++b) {
+                    collate[b][c] = framegroup[c][b][c];
+                }
+            }
+            //apply Windowing at this stage
+            for (int d = 0; d < blksize; ++d) {
+                output[d] = FrameStereo<T, N_CHAN>(collate[d])* this->_blockWindow.getWindowInd(d);
+            }
+        }
+        //checks if half a buffer has passed, and switches writing to the other. 
+        // windowing in collate makes this process silent
+        virtual void switch_buffers() {
+            float rload = this->outBuf[buffer_switch]._Rhead.load() % D;
+            bool sw = rload >= dd;
+            bool tick = this->_switchTick.process(sw);
+            if (tick) {
+                this->buffer_switch.store(!this->buffer_switch);
+                this->outBuf[buffer_switch].force_empty();
+                if (this->tick_count == 0) {
+                    for (int d = 0; d < N_CHAN; ++d) {
+                        this->delayinSamples[d] = this->fractionaldelay[d];
+                    }
+                }
+                this->tick_count = (this->tick_count + 1) % max_ticks;
+            }
+        }
+        //pass a block from the input buffer into current output Buffer
+        virtual void pass_block() {
+            FrameStereo<T, N_CHAN>* read_input[N_CHAN];
+            for (int i = 0; i < N_CHAN; ++i) {
+                read_input[i] = this->read_input_data(this->delayinSamples[i]);
+            }
+            FrameStereo<T, N_CHAN>* write_output = this->write_output_data();
+            this->collate_frames(read_input, write_output, DI);
+
+            this->write_incr_output(D);
+
+            this->read_incr_input(this->dd);
+
+
+        }
+        //shift one frame from a given output buffer(meant to be overlap-added)
+        virtual FrameStereo<T, N_CHAN> shift_output(int which) {
+            //reading from 0 delay here
+            FrameStereo<T, N_CHAN> t = this->outBuf[which].ReadFromIndexF(0);
+            return t;
+
+        }
+
+        //*****MAIN FUNCTIONS FOR EXTERNAL USE*****//
+
+        //delaytime given in fractional samples
+        //samples must be array of N_CHAN size
+        virtual void setDelay(T* samples) {
+            for (int n = 0; n < N_CHAN; ++n) {
+                this->fractionaldelay[n] = rack::math::clamp(samples[n], float(DI), float(SI));
+            }
+        }
+
+        //t is array of one sample per channel, size N_CHAN
+        virtual void PushInput(T* t) {
+            FrameStereo<T, N_CHAN> frame = FrameStereo<T, N_CHAN>(t);
+            inBuf.Write(frame);
+        }
+
+        //call after pushInput
+        virtual void BlockProcess() {
+            this->switch_buffers();
+
+            if (this->outBuf[this->buffer_switch].is_empty()) {
+                this->pass_block();
+            }
+        }
+        //call after blockProcess
+        //returns pointer to internal Wet array of N_CHAN size
+        virtual T* CrossfadeOutput() {
+            FrameStereo<T, N_CHAN> fade;
+            //overlap add output buffers
+            for (int w = 0; w < 2; ++w) {
+                if (!this->outBuf[this->buffer_switch].is_empty()) {
+                    fade += this->shift_output(w);
+                }
+            }
+            for (int i = 0; i < N_CHAN; ++i) {
+                this->Wet[i] = fade[i];
+            }
+
+            return this->Wet;
+        }
+    };
+
+
+
+    //used to be essentially DoubleRingBuffer from VCV SDK but I required gut level changes.
+    //manually indexable doubleRingBuffer with crossfading output buffers(no pitch shift on time changes)
+    // freezable and reversible, also pitchable
+    //inherently stereo delay, N_CHAN should be at least 2 
+    // --uses FrameStereo internally, probably dont make this do Frames of Frames, but simd safe(i Think)
+    // S determines size of input buffer, capping Maximum Delay Time in samples
+    // D determines size of output buffers, capping  Minimum Delay Time in samples
+    // 'S' AND 'D' SHOULD BE A POWER OF 2 (MUST BE IF USING SIMD), 'S' MUST BE AT LEAST TWICE 'D'
+    //---- general call order ---- 
+    // pushInput -> read_input_data & write_output_data -> collate_frames -> write_incr_output -> read_incr_input -> shift_output
+    // but you have to do all the chacking yourself, so instead ::
+    // PushInput -> BlockProcess -> CrossfadeOutput
+    template <typename T = float, size_t S = 44100, size_t D = 2048, int N_CHAN = 2>
+    struct Tricked_Out_CFDelayLine : CF_DelayLine<T, S, D, N_CHAN, 
+                        ReverseFreezeDoubleRing<FrameStereo<T, N_CHAN>, S>,
+                        Runaway_ReversePitchDoubleRing<FrameStereo<T, N_CHAN>, D>> {
+        
+        //pitch can only be global, indexes output buffers
+        const int pitch_gap = S / 8;
+        float Pitch;
+        float pitchIncr[2];
+        //states and checker
+        bool StateChange = false;
+        //for debug
+        bool emptycatch = false;
+        size_t freezeLoop;
+
+        rack::dsp::BooleanTrigger _pitchTick;
+
+       
+        
+
+
+        Tricked_Out_CFDelayLine() {
+        }
+        //delete handled by base class
+        ~Tricked_Out_CFDelayLine() {
+        }
+
+        //flip the same boolean whichever state changes  
+        void detect_state(bool change, bool curr) {
+            //if recent change  snap readhead to writehead (before, it should alredy be pretty close)
+            if (curr != change) {
+                //thisll help it last even longer 
+                // - whenever a state change occurs both head get wrapped back inside the buffer
+                this->inBuf.force_inside();
+                this->inBuf.force_empty();
+                //this will hold true thru one sample the moment 'change' changes
+                this->StateChange = true;
+                //*curr = change;
+                return;
+            }
+            this->StateChange = false;
+            return;
+        }
+
+        //if pitch becomes zero and stays there, this can tell you when to put the readhead back
+        bool pitch_at_zero() {
+            bool iszero = rack::math::isNear(this->outBuf[0].Pitch, 1.f);
+            bool stable = this->outBuf[0].is_stable_pitch();
+            bool moment = _pitchTick.process(iszero && stable);
+            return moment;
+        }
+
+
+        //checks if half a buffer has passed, and switches writing to the other. windowing makes thies process silent
+        void switch_buffers() override {
+            float rload = this->outBuf[this->buffer_switch]._Rhead.load() % D;
+            bool sw = !this->outBuf[this->buffer_switch].Reverse ? rload >= this->dd
+                : rload < this->dd;
+            bool tick = this->_switchTick.process(sw);
+            if (tick || StateChange) {
+                this->buffer_switch.store(!this->buffer_switch);
+                this->outBuf[this->buffer_switch].force_empty();
+
+                if (this->tick_count == 0) {
+                    for (int d = 0; d < N_CHAN; ++d) {
+                        this->delayinSamples[d] = this->fractionaldelay[d];
+                    }
+                    //This is My Fix for Runaway ReadHead at unequal pitch
+                    // reverse and freeze loop on their own so dont do it then
+                    if (!this->inBuf.Reverse && !this->inBuf.Freeze) {
+                        //check how much pitch has shifted read head
+                        int wh = this->inBuf._Whead.load() % this->inBuf.SI;
+                        int rh = this->inBuf._Rhead.load() % this->inBuf.SI;
+                        int dist = get_wrapped_distance(wh, rh, this->inBuf.SI);
+                        if (dist >= pitch_gap || this->pitch_at_zero()) {
+                            this->inBuf.force_empty();
+                        }
+                    }
+                }
+                this->tick_count = (this->tick_count + 1) % this->max_ticks;
+            }
+        }
+
+
+        //*****MAIN PROVIDED CALLS*****
+
+        //delaytime given in fractional samples
+        //samples must be array of N_CHAN size
+        /*void setDelay(T* samples) in base class*/
+
+        //playback speed as v/oct
+        void setPitch(T voct) {
+            this->outBuf[0].setPitch(voct);
+            this->outBuf[1].setPitch(voct);
+        }
+        //loopgap could be same as loopsize below, or not
+        void setReverse(bool rev, float loopgap) {
+            detect_state(rev, this->inBuf.Reverse);
+            this->inBuf.setReverse(rev, loopgap);
+            //pitched output reverses just run whole buffer
+            this->outBuf[0].setReverse(rev);
+            this->outBuf[1].setReverse(rev);
+            
+        }
+        //u can give me a fractional loopsize but i dont care about it
+        void setFreeze(bool froze, T loopsize) {
+            detect_state(froze, this->inBuf.Freeze);
+            this->inBuf.setFreeze(froze, loopsize);
+
+        }
+
+        //t is array of one sample per channel, size N_CHAN
+        /*void PushInput(T* t) in base class*/
+        
+        //call after pushInput
+        void BlockProcess() override {
+            switch_buffers();         
+            if (this->outBuf[this->buffer_switch].is_empty()) {
+                this->pass_block();              
+            }
+        }
+
+        //call after blockProcess
+        //returns pointer to internal array of N_CHAN size
+        /*T* CrossfadeOutput() in base class*/
+    };
+
+    template <typename T = float, size_t S = 44100, size_t TAPS = 4>
+    struct SimpleTapLine {
+        T Buffer[S];
+        T taps[TAPS];
+        std::atomic<size_t> wh;
+        SimpleTapLine() {
+            wh = 0;
+            std::memset(Buffer, (T)0, sizeof(T) * S);
+            std::memset(taps, (T)0, sizeof(T) * TAPS);
+        }
+        void Push(T in) {
+            this->Buffer[wh % S] = in;
+            ++wh;
+        }
+        //places taps in lanes(ret) with independant delays(dist) - ret and dist must be at least TAPS size
+        void PullTaps(T* dist, T* ret) {
+
+            for (int t = 0; t < TAPS; ++t) {
+                size_t i = wraparound(int(this->wh.load()), int(dist[t]), int(S), true);
+                this->taps[t] = fractionalRead(dist[t], i, this->Buffer, S);
+                ret[t] = this->taps[t]; 
+            }
+        }
+        //dist must be at least TAPS size
+        T SumTaps(T* dist) {
+            T tap[TAPS];
+            T ret = 0;
+            PullTaps(dist, tap);
+            for (int t = 0; t < TAPS; ++t) {
+                ret += tap[t];
+            }
+            return ret;
+        }
+
+        void clear() {
+            std::memset(Buffer, (T)0, sizeof(T) * S);
+            std::memset(taps, (T)0, sizeof(T) * TAPS);
+            wh = 0;
+        }
+    };
+
+    //fixed sample delay, D is delay time in samples
+    template<typename T = float, size_t D = 100>
+    struct FixedDelayLine {
+        T Buf[D];
+        std::atomic<size_t> wh;
+        FixedDelayLine() {
+            std::memset(Buf, 0, sizeof(T) * D);
+            wh = 0;
+        }
+        T process(T in) {
+            //this simply makes output follow all the way behind input via wrapping
+            size_t del = (wh + (D - 1)) % D;
+            Buf[del] = in;
+            T out = Buf[wh % D];
+            ++wh;
+            return out;
+        }
+    };
+
 
     //real artifacty when moving, best for static delays
+    //Mostly Junk TM
     template <typename T = float, size_t S = 44100>
     struct SimplePitchDelayLine {
         static const size_t D = 2048;
@@ -53,7 +438,7 @@ namespace Delay {
         SimplePitchDelayLine() {
             this->clear();
         }
-     
+
         bool outEmpty() const {
             bool emp = this->outRead >= this->outWrite;
             return emp;
@@ -78,7 +463,7 @@ namespace Delay {
 
         //not tracking a read pointer for the inBuffer so no incrementing happens here
         const T* ReadInput(size_t ind) {
-            size_t i = wraparound(this->inWrite - ind, S);
+            size_t i = wraparound(this->inWrite.load(), ind, S, true);
             return &this->Buffer[i];
         }
 
@@ -107,10 +492,10 @@ namespace Delay {
             std::memcpy(output, input, sizeof(T) * blksize);
         }
         T circularwrap(float min, float max, T v, size_t lim) {
-                float newmax = (min < max) ? max : max + lim;
-                float m = min + rack::simd::fmod((v - min), (newmax - min));
-                return  (T)rack::simd::fmod(m, lim);
-            
+            float newmax = (min < max) ? max : max + lim;
+            float m = min + rack::simd::fmod((v - min), (newmax - min));
+            return  (T)rack::simd::fmod(m, lim);
+
         }
         //pull repitched samples from the output Block
         T shift() {
@@ -133,26 +518,26 @@ namespace Delay {
             next = this->Pitch + this->pitchremain;
             ni = static_cast<int>(next);
             int hsplit = readSplit / 2;
-            RA = wraparound(pitchHead - readSplit, D) ;
-           // RA = wraparound(RA, D);
-            int lowrap = wraparound((outRead - readSplit), D);
-            int hiwrap = wraparound((outRead + hsplit), D);
-           // RA = circularwrap(lowrap, hiwrap, RA ,D);
-            //phase is ratio between differences
+            RA = wraparound(pitchHead.load(), readSplit, D, true);
+            // RA = wraparound(RA, D);
+            int lowrap = wraparound(outRead.load(), readSplit, D, true);
+            int hiwrap = wraparound(outRead.load(), size_t(hsplit), D);
+            // RA = circularwrap(lowrap, hiwrap, RA ,D);
+             //phase is ratio between differences
             T ph1 = (T)RA / (T)D;// (T)((RA) % readSplit) / (T)readSplit;
-           
-            RB = wraparound((int)pitchHead, (int)D);
-           // RB = wraparound(RB, D);
-           // RB = circularwrap(lowrap, hiwrap, RB, D);
+
+            RB = pitchHead % D;// wraparound((int)pitchHead, (int)D);
+            // RB = wraparound(RB, D);
+            // RB = circularwrap(lowrap, hiwrap, RB, D);
             T ph2 = (T)RB / (T)D;// (T)((RB - hsplit) % readSplit) / (T)readSplit;
-           
+
             //read from both heads
             T t1 = fractionalRead(pitchremain, RA, this->blok, D);
             T t2 = fractionalRead(pitchremain, RB, this->blok, D);
             //make phase for each read pointer
             //since RA starts at 0, offset is needed to give it the appropriate gain
-            
-           
+
+
             //window each fractional read
             //may make more for me less for the CPU by creating a precalculatable Hann Array 
             HannWindow(ph1, &t1);
@@ -161,7 +546,7 @@ namespace Delay {
             pitchHead += ni;
             //remember difference
             this->pitchremain = next - ni;
-            
+
             //this still moves at a constant speed so the buffer empties in constant time
             this->outRead += 1;
             t = t1 + t2;// +t2;
@@ -170,7 +555,7 @@ namespace Delay {
 
         //can call every sample, will only run when it needs to
         void process() {
-                             
+
             // update delay time only when buffer empties
             //
             if (this->outEmpty()) {
@@ -189,354 +574,13 @@ namespace Delay {
             //T window = (float)(this->outRead % this->timeSet) / (float)timeSet;
             if (!this->outEmpty()) {
                 tap = this->shift();
-              //  HannWindow(window, &tap);
+                //  HannWindow(window, &tap);
             }
-                return tap;
+            return tap;
         }
     };
 
 
-    //used to be essentially DoubleRingBuffer from VCV SDK but I required gut level changes.
-    //manually indexable doubleRingBuffer with crossfading output buffers(no pitch shift on time changes)
-    // freezable and reversible, also pitchable
-    template <typename T = float, size_t S = 44100, size_t D = 2048>
-    struct CFDelayLine {
-        std::atomic<size_t> inRead;
-        std::atomic<size_t> inWrite;
-        std::atomic<size_t> outRead[2];
-        std::atomic<size_t> outWrite[2];
-        std::atomic<size_t> wblkhd;
-        T inBuf[S * 2];
-        T outBuf[2][D * 2];
-        T wetblok[8];
-        T Pitch;
-        T pitchIncr[2];
-        rack::dsp::Timer _crossTime;
-        rack::dsp::SlewLimiter _crossFade;
-
-        bool bufferSwitch = false;
-        bool shrink = false;
-        bool Reverse = false;
-        bool Frozen = false;
-        bool revtmp = false;
-        bool fretmp = false;
-        bool StateChange = false;
-
-        T fractionaldelay;
-        size_t delayinSamples = D * 1.5;        
-        size_t shrinksize;
-        size_t lastsize = 0; 
-        T fadetime;
- 
-
-        void clear() {
-            std::memset(this->inBuf, 0.f, sizeof(T) * (S * 2));
-            this->inRead = 0;
-            this->inWrite = 0;
-            this->wblkhd = 0;
-            this->Pitch = 1;
-            for (int b = 0; b < 2; ++b) {
-                std::memset(this->outBuf[b], 0.f, sizeof(T) * (D * 2));
-                this->outRead[b] = 0;
-                this->outWrite[b] = 0; 
-                this->pitchIncr[b] = 0;
-            }
-            _crossTime.reset();
-        }
-
-
-        CFDelayLine() {
-            this->clear();
-        }
-        //most of these little ones are straight from DoubleRingBuffer, and not even used
-        bool inEmpty() const {
-            return this->inRead >= this->inWrite;
-        }
-        bool outEmpty(int which) const {
-            bool emp = this->outRead[which] >= this->outWrite[which];
-            return emp;
-        }
-        bool inFull() const {
-            return this->inWrite - this->inRead >= S;
-        }
-        bool outFull() const {
-            return this->outWrite[0] - this->outRead[0] >= D;
-        }
-        size_t inSize() const {
-            return this->inWrite - this->inRead;
-        }
-        size_t outSize() const {
-            return this->outWrite[0] - this->outRead[0];
-        }
-        size_t inCapacity() const {
-            return S - this->inSize();
-        }
-        size_t outCapacity() const {
-            return D - this->outSize();
-        }
-        void forceEmpty(int which) {
-            //set writehead = readhead to force buffer to write at current point in time and overwrite the unused data
-            this->outWrite[which].store(this->outRead[which].load());
-        }
-
-        void detectState(bool change, bool* tmp) {
-            //if recent change  snap readhead to writehead (before, it should alredy be pretty close)
-            //if (change == true) *tmp = true;
-            if (*tmp != change) {
-                this->inRead.store(this->inWrite.load());
-                //this will hold true thru one sample the moment 'change' changes
-                this->StateChange = true;
-                *tmp = change;
-                return;
-            }
-            this->StateChange = false;
-            return;
-        }
-
-        //put a sample into the end of input and advance input Write head every frame
-        //run every sample
-        void pushInput(T t, bool frozen = false, bool reverse = false) {
-            //flip the same boolean whichever state changes
-            detectState(frozen, &this->Frozen);
-            detectState(reverse, &this->Reverse);
-
-            size_t i = this->inWrite % S;
-            if (!this->Frozen) {
-                this->inBuf[i] = t;
-                this->inBuf[i + S] = t;    
-                this->inWrite++;
-                //if (!reverse) this->inRead++;//keep readhead at now for delaytime 
-        
-            }
-
-
-        }
-        
-        //returns pointer to data from index (ind) behind current index w/ optional return of index value to given pointer ni
-       // to be copied onto output buffer 
-        const T* ReadDataFromInput(size_t ind, size_t* ni = nullptr) {
-            size_t i;
-            if (this->Frozen || this->Reverse) i = wraparound(int(this->inRead - ind), int(S));
-            else i = wraparound(int(this->inWrite - ind), int(S)); //when not frozen or reversing, we use the writehead
-            if (ni) *ni = i;
-            return &this->inBuf[i];
-        }
-        //use this with n of samples used (to keep buffer unFrozen - must be timed/sized right for good sound)
-        void inReadIncr(size_t n = 1) {
-            //this reverse will just reverse the entire input buffer
-            if (!this->Reverse) {
-                this->inRead += n;
-            }
-            else {              
-                this->inRead = wraparound(int(this->inRead - n), int(S));
-            }
-        }
-        //n = #Of samps to incr inBuffer-> 1/2 incr to outbuffer[x]. 
-        // cs = crawl size->loop size of inBuffer. 
-        // pt = dist from frozen inWrite -> delaytime
-        void inReadIncrFroze(size_t n, size_t cs, size_t pt) {
-            //looping inRead directly helps here
-            this->inRead = this->inRead % (S * 2);
-            //if this is being called, inWrite isnt moving
-//calculate wraps if requested indexes loop the ring
-            size_t sf = this->inWrite % S;
-            //start of frozen slice
-            size_t ef = wraparound(int(sf - pt), int(S));
-            //end of frozen slice --- this may read fron the doubled section of the buffer
-            size_t cf = ef + cs;
-            //size_t ps = this->inRead + n; //projected next read point - unneeded atm
-            if (!this->Reverse) {
-                this->inRead += n;
-                //if outside desired location skip around til inside
-                if (this->inRead > cf) this->inRead = ef;
-                if (this->inRead < ef) this->inRead = cf;
-            }
-            else {
-                this->inRead -= n;
-                if (this->inRead <= ef) this->inRead = cf;
-                if (this->inRead >= cf) this->inRead = ef;
-                //this->inRead = wraparound(this->inRead, S);
-            }
-        }
-
-        //returns pointer to this buffer to copy data onto at Writehead -- DST/consumer/output
-        T* WriteDataToOutput() {
-            size_t i = this->outWrite[this->bufferSwitch] % D;
-            return &this->outBuf[this->bufferSwitch][i];
-        }
-
-        //must call this after WriteData and before any other functions of this buffer if you want things to work
-        void outWriteIncr(size_t n) {
-            size_t i = (this->outWrite[this->bufferSwitch] ) % D; //get wrapped writehead
-            size_t e1 = i + n; //add number of desired samples to writehead count
-            size_t e2 = (e1 < (D)) ? e1 : (D); // if samples (e1) will go past S, this will == S
-            // Copy data forward
-            std::memcpy(&this->outBuf[this->bufferSwitch][D + i], &this->outBuf[this->bufferSwitch][i], sizeof(T) * (e2 - i));
-
-            if (e1 > D) {
-                // Copy data backward from the doubled block to the main block
-                std::memcpy(this->outBuf[this->bufferSwitch], &this->outBuf[this->bufferSwitch][D], sizeof(T) * (e1 - D));
-            }
-            this->outWrite[this->bufferSwitch] += n;
-        }
-        //call order ReadDataFromInput -> WriteDataToOutput -> AppendBlock -> outWriteIncr -> inReadIncr
-        void AppendBlock(const T* input, T* output, size_t blksize = D) {
-            std::memcpy(output, input, sizeof(T) * blksize);
-        }
-
-        //read an element every frame(if you can) and index outs ReadHead
-        //made overrideable for grainmaker
-        virtual T shiftOutput(int which) {
-            T t = 0;
-            size_t i = this->outRead[which] % D;
-            T next = this->Pitch + this->pitchIncr[which];
-            t = fractionalRead(pitchIncr[which], i, this->outBuf[which], D);
-            int ni = static_cast<int>(next);
-            this->pitchIncr[which] = next - ni;
-
-            if (!this->Reverse) {
-                this->outRead[which] += ni;
-            }
-            else {
-                this->outRead[which] = wraparound(int(this->outRead[which] - ni), int(D));
-            }
-            return t;
-        }
-
-        //delaytime given in samples but as T for fractional component
-        //call after pushInput
-        //this wraps up much of the above neatly for you
-        void blockProcess(T delaytime, float sampletime, T pitch = 0, T crawlF = 0) {
-            this->_crossTime.process(sampletime);
-            this->shrink = this->delayinSamples < D;
-            this->shrinksize = this->shrink ? this->delayinSamples : D;
-            //change delay time on intervals and switch which delay to give it to
-            //get delaytime - write to silent buffer - crossfade from audible buffer - switch - repeat
-            //separates delay threads by half D (or smaller if delay size shorter than D)
-         
-            //samplephase should equal when half of shrinksize samples have passed
-            size_t samplephase = this->_crossTime.getTime() / (sampletime); //convert time to samples
-            this->fractionaldelay = rack::math::clamp(delaytime, 10.f, S);
-            //if enough time has elapsed 
-            // update delay time and give it to silent buffer, initiating crossfade
-            if (samplephase >= (this->shrinksize * 0.5) || StateChange) {
-                this->Pitch = VoltToFreq(pitch, 0.f, 1.f); //0v = 1x speed, 1v = 2x speed, -1v = 0.5x speed
-
-                this->delayinSamples = (int)this->fractionaldelay;
-                this->bufferSwitch = !this->bufferSwitch; //flip from 0 - 1 and back
-                forceEmpty(this->bufferSwitch);
-                this->lastsize = this->shrinksize;
-                _crossTime.reset();
-                float risefall = (samplephase / 12.f); //slew time for crossfading
-                _crossFade.setRiseFall(risefall, risefall);
-
-            }
-            //somehow delay times smaller than D (shrinksize != D) result in pop at moment of buffer switch,
-            // short times result in one buffer being held empty while the other reads instead of writing every timing cycle
-            if (this->outEmpty(this->bufferSwitch)) {
-                //these internally read from bufferSwitch buffer
-                const T* read_input = this->ReadDataFromInput(this->delayinSamples);
-                T* write_output = this->WriteDataToOutput();
-                this->AppendBlock(read_input, write_output, this->shrinksize);
-                this->outWriteIncr(this->shrinksize);
-                
-                if (!this->Frozen) {
-                    this->inReadIncr(this->shrinksize / 2); //increment by half, as 2 delay threads separated by half
-                }
-                else {
-                    this->inReadIncrFroze(this->shrinksize / 2, (size_t)crawlF, this->delayinSamples);
-                }
-            }
-        }
-        //run every sample -- call after blockProcess();
-        T CrossfadeOutput(float sampletime) {
-
-            T wet = 0;
-            T fade[2] = { 0, 0 };          
-            fadetime = this->_crossFade.process(sampletime, this->bufferSwitch);
-            //process both buffers 
-            for (int w = 0; w < 2; ++w) {
-                if (!this->outEmpty(w)) {
-                    fade[w] = this->shiftOutput(w);
-                }
-            }
-            //fade between buffers at bufferSwitch -> into tiny buffer for cubic lerping. 
-            // this does mean output is always at minimum 2 samples delay 
-            // this is stil not enough to fully remove clicking
-            wetblok[wblkhd % 8] = rack::math::crossfade(fade[0], fade[1], fadetime);
-            wet = cubicLerp(wetblok, (wblkhd - 2) % 8, fadetime, 8);
-            ++wblkhd;
-            return wet;
-        }
-
-        //mostly for debugging
-        size_t getCurrentEnd() {
-            return this->inWrite % S;
-        }
-        size_t getCurrentStart() {
-            return this->inRead % S;
-        }
-
-    };
-
-    template <typename T = float, size_t S = 44100, size_t TAPS = 4>
-    struct SimpleTapLine {
-        T Buffer[S];
-        T taps[TAPS];
-        std::atomic<size_t> wh;
-        SimpleTapLine() {
-            wh = 0;
-            std::memset(Buffer, (T)0, sizeof(T) * S);
-            std::memset(taps, (T)0, sizeof(T) * TAPS);
-        }
-        void Push(T in) {
-            this->Buffer[wh % S] = in;
-            ++wh;
-        }
-        //places taps in lanes(ret) with independant delays(dist) - ret and dist must be at least TAPS size
-        void PullTaps(T* dist, T* ret) {
-
-            for (int t = 0; t < TAPS; ++t) {
-                size_t i = wraparound((this->wh - (int)dist[t]), S);
-                this->taps[t] = fractionalRead(dist[t], i, this->Buffer, S);
-                ret[t] = this->taps[t]; 
-            }
-        }
-        //dist must be at least TAPS size
-        T SumTaps(T* dist) {
-            T tap[TAPS];
-            T ret = 0;
-            PullTaps(dist, tap);
-            for (int t = 0; t < TAPS; ++t) {
-                ret += tap[t];
-            }
-            return ret;
-        }
-
-        void clear() {
-            std::memset(Buffer, (T)0, sizeof(T) * S);
-            std::memset(taps, (T)0, sizeof(T) * TAPS);
-            wh = 0;
-        }
-    };
-    //fixed sample delay, D is delay time in samples
-    template<typename T = float, size_t D = 100>
-    struct FixedDelayLine {
-        T Buf[D];
-        std::atomic<size_t> wh;
-        FixedDelayLine() {
-            std::memset(Buf, 0, sizeof(T) * D);
-            wh = 0;
-        }
-        T process(T in) {
-            //this simply makes output follow all the way behind input via wrapping
-            size_t del = (wh + (D - 1)) % D;
-            Buf[del] = in;
-            T out = Buf[wh % D];
-            ++wh;
-            return out;
-        }
-    };
 
 }
 }

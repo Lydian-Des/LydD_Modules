@@ -612,26 +612,26 @@ struct QuantPanelWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(15, 365)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 30, 365)));
 
-        addParam(createParam<RoundBlackKnob>(Vec(22.5, 205.35), module, QuantModule::TRANS_PARAM));
-        addParam(createParam<VCVButton>(Vec(137.309, 40.287), module, QuantModule::Q_MODE_BUTTON));
+        addParam(createParam<RoundBlackKnob>(Vec(12.188, 201.491), module, QuantModule::TRANS_PARAM));
+        addParam(createParam<VCVButton>(Vec(139.557, 37.698), module, QuantModule::Q_MODE_BUTTON));
         addParam(createParam<RoundSmallBlackKnob>(Vec(143, 132.5), module, QuantModule::BANK_PARAM));
 
         std::vector<Vec> notePos = {
-            (Vec(14.398, 99.621)),  //C
-            (Vec(71.660, 99.621)), //C#
-            (Vec(43.363, 150.107)), //D
-            (Vec(71.660, 30.614)), //D#
-            (Vec(43.363, 81.871)),  //E
-            (Vec(14.398, 133.739)), //F
-            (Vec(71.660, 133.739)), //F#
+            (Vec(14.398, 98.894)),  //C
+            (Vec(71.769, 98.894)), //C#
+            (Vec(43.583, 148.981)), //D
+            (Vec(72.769, 32.112)), //D#
+            (Vec(43.583, 82.198)),  //E
+            (Vec(14.398, 132.285)), //F
+            (Vec(72.769, 132.285)), //F#
             (Vec(14.398, 65.503)), //G
-            (Vec(71.660, 65.503)), //G#
-            (Vec(43.363, 115.989)), //A
-            (Vec(99.958, 115.989)),  //A#
-            (Vec(43.363, 47.753)), //B
+            (Vec(72.769, 65.503)), //G#
+            (Vec(43.583, 115.589)), //A
+            (Vec(101.954, 115.589)),  //A#
+            (Vec(43.563, 48.807)), //B
         };
         for (int b = 0; b < OCT; ++b) {
-            addParam(createParam<HexButton>(notePos[b], module, QuantModule::KEY_BUTTON + b));
+            addParam(createParam<HexButton>(Vec(notePos[b].x + 1.5f, notePos[b].y - 1.f), module, QuantModule::KEY_BUTTON + b));
         }
 
        
@@ -655,10 +655,10 @@ struct QuantPanelWidget : ModuleWidget {
 
 
         if (module) {
-            addChild(createLight<PageLight>(Vec(1.793, 218.272), module, QuantModule::PAGE_LIGHT));
+            addChild(createLight<PageLight>(Vec(6.727, 191.556), module, QuantModule::PAGE_LIGHT));
 
             for (int note = 0; note < OCT; ++note) {
-                HexLight* quantlight = createWidget<HexLight>(notePos[note]);
+                HexLight* quantlight = createWidget<HexLight>(Vec(notePos[note].x + 1.5f, notePos[note].y - 1.f));
                 quantlight->Note = note;
                 quantlight->Svg("res/QuantLights/HexLight32px.svg");
                 quantlight->module = module;
@@ -673,25 +673,7 @@ struct QuantPanelWidget : ModuleWidget {
         }
        
     }
-    //void onDragStart(const event::DragStart& e) override {
-   //    if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
-   //        module->QT.enabledSimple[Note] ^= true;
-   //       // module->QT.setSimpleEnabled();
-   //        module->QT.semiSimple();
-   //    }
-   //    SvgWidget::onDragStart(e);
-   //}
 
-   //void onDragEnter(const event::DragEnter& e) override {
-   //    if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
-   //        HexLight* origin = dynamic_cast<HexLight*>(e.origin);
-   //        if (origin) {
-   //            module->QT.enabledSimple[Note] = module->QT.enabledSimple[origin->Note];;
-   //            module->QT.semiSimple();
-   //        }
-   //    }
-   //    SvgWidget::onDragEnter(e);
-   //}
 };
 
 Model* modelQuant = createModel<QuantModule, QuantPanelWidget>("Hex-Quantizer");

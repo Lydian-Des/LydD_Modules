@@ -1,1 +1,1 @@
-currPanel = defaultPanel;;
+currPanel = defaultPanel;

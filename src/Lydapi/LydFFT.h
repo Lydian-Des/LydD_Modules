@@ -196,15 +196,11 @@ namespace FFTStuff {
         std::thread pitchWorker;
         std::mutex workTex;
         std::condition_variable workCV;
-        std::atomic<bool> FFTReady{ false };
-        std::atomic<bool> Quitting{ false };
-
-
-        //S is FFT size, I is doubled for compex values(interlaced), H is hop size
-        static const int R = S / 2 + 1;
-        static const int I = S * 2;
-        static const int HN = 4;
-        static const int H = S / HN;
+        
+        static const int R = S / 2 + 1; //for frequency bin manipulation
+        static const int I = S * 2; //doubled FFT size for complex values(interlaced)
+        static const int HN = 4; //# of hops
+        static const int H = S / HN; //size of one hop
 
         BinPitcher<T, S, H> _pitchShift;
 
@@ -213,12 +209,17 @@ namespace FFTStuff {
         T HANN[S];
         T filtHann[R];
         bool firstTimeIn[HN];
-        std::atomic<bool> outReady[HN];
-        std::atomic<int> currentWindow; //current window being FFT'd
-        niceBlock<T, I>* inWindow;
+
+        /*SHARED VARIABLES*/ //the bools work with condition variables,
+        std::atomic<bool> Quitting{ false }; //always exit thread on deconstruct
+        std::atomic<bool> FFTReady{ false }; //is an FFT block [inWindow] ready to process
+        std::atomic<bool> outReady[HN]; //has the FFT block processed [outWindow]
+        std::atomic<int> currentWindow; //current inWindow being FFT'd
+        niceBlock<T, I>* inWindow; // builds HN input buffers
         niceBlock<T, I> FFFreqs;
         niceBlock<T, I> alteredFreqs;
-        niceBlock<T, I>* outWindow;
+        niceBlock<T, I>* outWindow; // builds HM output Buffers
+        /*SHARED VARIABLES*/ //but the niceBlocks are all currently shared [FF and altered may go inside the function
        
         //phase, magnitude, and frequency calculated for analysis and synthesis each hop
         
@@ -310,9 +311,16 @@ namespace FFTStuff {
         T getOutWindow(int w) {
             return this->HANN[this->outRH[w] % S];
         }
+        T addArray(T* arr, int size) {
+            T val = 0;
+            for (int i = 0; i < size; ++i) {
+                val += arr[i];
+            }
+            return val;
+        }
         void push(T in) {
             {
-                std::lock_guard<std::mutex> lock(workTex);
+               // std::lock_guard<std::mutex> lock(workTex);
                 for (int q = 0; q < HN; ++q) {
                     //use writeheads in background as counters to tell when to start for the first time
                     //first sample, none are ready to write, so each ticks. 
@@ -331,23 +339,52 @@ namespace FFTStuff {
                         size_t whn = this->inWH[q] % S;
                         size_t whr = whn * 2;
                         size_t whi = whn * 2 + 1;
-                        this->inWindow[q].dat[whr] = in * this->HANN[whn];
-                        this->inWindow[q].dat[whi] = 0;
+                        {
+                            std::lock_guard<std::mutex> lock(workTex);
+                            /*CRITICAL SECTION*/ //main thread writes worker input each sample
+                            this->inWindow[q].dat[whr] = in * this->HANN[whn];
+                            this->inWindow[q].dat[whi] = 0;
+                            /*CRITICAL SECTION*/ //but its in a for loop, should i be lock/unlocking that much?
+                        }
                         this->inWH[q] += 1;
                     }
                 }
             }
+            //main thread writes and tells worker when a block is ready
             if (this->inFull(this->currentWindow.load())) {
                 this->FFTReady.store(true);
                 workCV.notify_one();
             }
         }
 
+        T pull() {
+            for (int q = 0; q < HN; ++q) {
+                //if any buffer has been FFT'd, reset its read pointer
+                if (this->outReady[q]) {
+                    this->outRH[q] = 0;
+                    this->outReady[q].store(false);
+                }
+                //grab sample from each hop block
+                if (!this->outFull(q)) {
+                    size_t rh = this->outRH[q] % S;
+                    {
+                        std::lock_guard<std::mutex> lock(workTex);
+                        /*CRITICAL SECTION*/ //main thread reads worker output each sample
+                        this->finalOuts[q] = this->outWindow[q].dat[rh * 2] * this->HANN[rh];
+                        /*CRITICAL SECTION*/ //again in a loop
+                    }
+                }
+                this->outRH[q] += 1;
+            }
+            //add hop blocks together to output
+            return (addArray(this->finalOuts, HN)) * (5.f / HN);
+        }
        
 
         
-
+        //threaded function, not called in main (just call push then pull each sample)
         void processFFT() {
+            //FFFreqs and alteredFreqs could be func members
             while (true) {
                 std::unique_lock<std::mutex> lock(workTex);
                 workCV.wait(lock, [this] {
@@ -355,60 +392,36 @@ namespace FFTStuff {
                     });
                 //make sure to close the thread when the program terminates
                 if (this->Quitting) return;
-                //if (this->inFull(this->currentWindow)) {
-                //lock.lock();
+                    //not lock-free, but lock-lesser, this would be 
+                    /*CRITICAL SECTION*/ //shared data read
                     this->takeScaledFFT(this->inWindow[this->currentWindow].dat, this->FFFreqs.dat);
+                    /*CRITICAL SECTION*/
 
+                    //as member vars this wouldnt be critical
                     //remove potentially unwanted info from altered bins
                     for (int l = 0; l < (int)S; ++l) {
                         this->alteredFreqs.dat[l * 2] = 0;
                         this->alteredFreqs.dat[l * 2 + 1] = 0;
                     }
-                    //}
-                    //if(inHalf(f)) {
                     this->_pitchShift.process(this->FFFreqs.dat, this->alteredFreqs.dat);
-                    //doNothing(this->FFFreqs.dat, this->alteredFreqs.dat);
-                    //binScramble(this->FFFreqs.dat, this->alteredFreqs.dat);
-                // windowFilter(this->alteredFreqs.dat, this->alteredFreqs.dat);
 
-
+                    /*CRITICAL SECTION*/ //a second one to write to the whole output block
                     this->invertFFT(this->alteredFreqs.dat, this->outWindow[this->currentWindow].dat);
                     autoWindow(this->outWindow[this->currentWindow].dat, this->outWindow[this->currentWindow].dat);
+                    /*CRITICAL SECTION*/
+
                     //this is set true for the first time for the first outblock only after the first fft is done
                     this->outReady[this->currentWindow].store(true);
+                    //when window is done, increment [lets hope its always done before another window is Full]
                     this->currentWindow.store((this->currentWindow.load() + 1) % this->HN);
+                    //go back to waiting
                     this->FFTReady.store(false);
                 //}
                 //lock.unlock();
             }
         }
 
-        T addArray(T* arr, int size) {
-            T val = 0;
-            for (int i = 0; i < size; ++i) {
-                val += arr[i];
-            }
-            return val;
-        }
-        T pull() {
-
-            for (int q = 0; q < HN; ++q) {
-                //if any buffer has been FFT'd, reset its read pointer
-                if (this->outReady[q]) {
-                    this->outRH[q] = 0;
-                    this->outReady[q] = false;
-                }
-                //grab sample from each hop block
-                if (!this->outFull(q)) {
-                    size_t rh = this->outRH[q] % S;
-                    this->finalOuts[q] = this->outWindow[q].dat[rh * 2] * this->HANN[rh];
-                   
-                }
-                this->outRH[q] += 1;
-            }
-            //add hop blocks together to output
-            return (addArray(this->finalOuts, HN)) * (5.f / HN);
-        }
+        
     };
 
 

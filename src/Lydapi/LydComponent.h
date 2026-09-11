@@ -73,5 +73,45 @@ namespace Components {
         }
     };
     //using ColorSVGLight = TColorSVGLight<>;
+    struct TColorSVGLight_Stroke : TColorSVGLight {
+        TColorSVGLight_Stroke() {
+            this->setSvg(Svg::load(asset::plugin(plugInst, "res/Logo.svg"))); //load logo by defult lol
+        }
+        void draw(const DrawArgs& args) override {}
+        void drawLayer(const DrawArgs& args, int layer) override {
+            if (layer == 1) {
+
+                if (!sw->svg)
+                    return;
+
+                if (module) {
+
+                    for (auto s = sw->svg->handle->shapes; s; s = s->next) {
+                        s->stroke.color = ((int)(color.a * 255) << 24) + (((int)(color.b * 255)) << 16) + (((int)(color.g * 255)) << 8) + (int)(color.r * 255);
+                        s->stroke.type = NSVG_PAINT_COLOR;
+                    }
+
+                    nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE, NVG_ONE_MINUS_SRC_ALPHA);
+                    svgDraw(args.vg, sw->svg->handle);
+                }
+            }
+            Widget::drawLayer(args, layer);
+        }
+        void drawHalo(const DrawArgs& args) override {
+
+            /* if (!sw->svg)
+                 return;
+
+             if (module) {
+
+                 for (auto s = sw->svg->handle->shapes; s; s = s->next) {
+                     s->fill.color = ((int)(255) << 24) + (((int)(color.b * 255)) << 16) + (((int)(color.g * 255)) << 8) + (int)(color.r * 255);
+                     s->fill.type = NSVG_PAINT_COLOR;
+                 }
+
+                 nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
+             }*/
+        }
+    };
 }
 }

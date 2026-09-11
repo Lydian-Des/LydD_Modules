@@ -4,6 +4,7 @@
 #define PANEL "Torus_panel.svg"
 #define HP 16
 
+#define MAX_LINE 512
 using namespace LydD;
 using namespace LydD::Matrix;
 static const int maxPolyphony = 1;
@@ -11,23 +12,27 @@ static const int maxPolyphony = 1;
 static rack::simd::float_4 Zero{ 0.f };
 static rack::simd::float_4 One{ 1.f };
 
-
+template<size_t MAX= 128>
 class Follow {
 private:
-    std::vector<rack::simd::float_4> Points;
-    
+    rack::simd::float_4 Points[MAX * 2];
+    int write;
 
 public:
-    void buildPoints(rack::simd::float_4 Point) {
-        Points.push_back(Point);
-        
-        if (Points.size() > 400) {
-            Points.erase(Points.begin());
-
-        }
+    Follow() {
+        this->empty();
     }
-    void PeekPoints(std::vector<rack::simd::float_4>* askP) {
-        *askP = Points;
+    void empty() {
+        std::memset(Points, 0, sizeof(rack::simd::float_4) * (MAX * 2));
+        this->write = 0;
+    }
+    void buildPoints(rack::simd::float_4 Point) {
+        Points[write] = Point;
+        Points[write + MAX] = Point;
+        write = wraparound(write, 1, int(MAX));
+    }
+    void PeekPoints(rack::simd::float_4* askP) {
+        std::memcpy(askP, &Points[write], sizeof(rack::simd::float_4) * MAX);
     }
 };
 
@@ -132,7 +137,7 @@ struct PathEquate {
 
 struct TorusModule : Module
 {
-    Follow* follow;
+    Follow<MAX_LINE>* follow;
     PathEquate Paths;
 
 
@@ -208,7 +213,7 @@ struct TorusModule : Module
         configOutput(Y_OUTPUT, "Y-Axis");
         configOutput(Z_OUTPUT, "Z-Axis");
         
-        follow = new(Follow);
+        follow = new(Follow<MAX_LINE>);
 
     #include "Theme/setDefaultInit.h"
     }
@@ -222,7 +227,7 @@ struct TorusModule : Module
     int currentPolyphony = 1;
     int loopCounter = 0;
   
-    std::vector<rack::simd::float_4> pathToDraw{ 0 };
+    rack::simd::float_4 pathToDraw{ 0 };
 
     // TORUS
     float x = 1.0;
@@ -268,6 +273,7 @@ struct TorusModule : Module
     float refFreq = 130.813;
     
     rack::dsp::BooleanTrigger SyncBeat;
+    rack::dsp::BooleanTrigger _drawtick;
    
     void process(const ProcessArgs& args) override {   
         if (loopCounter % 16 == 0) {
@@ -290,10 +296,13 @@ struct TorusModule : Module
     }
 
     void phaseDraw(const ProcessArgs& args) {
-        int phasexpand = (tPhases[0] + nPhases[0]) * 200;
-        if (phasexpand % 2 == 0) {
-            follow->buildPoints(pathToDraw[0]);
+        int phas = int(tPhases[0] + nPhases[0]);
+        float fracpand = (tPhases[0] + nPhases[0]) - phas;
+        int phasexpand = fracpand * 80;
+        if (_drawtick.process(phasexpand % 2 == 0)) {
+            follow->buildPoints(pathToDraw);
         }
+        //outputs[Z_OUTPUT].setVoltage(phasexpand, 0);
     }
 
     void Lights(const ProcessArgs& args) {
@@ -391,9 +400,10 @@ struct TorusModule : Module
             tPhases = Zero;
             nPhases = Zero;
         }
-        rack::simd::float_4 plimit(48.f * _2_PI);
-        incrementPhase(tPitches, args.sampleRate, &tPhases, plimit);
-        incrementPhase(nPitches, args.sampleRate, &nPhases, plimit);
+        rack::simd::float_4 tlimit(48.f * _2_PI);
+        rack::simd::float_4 nlimit(24.f * _2_PI);
+        incrementPhase(tPitches, args.sampleRate, &tPhases, tlimit);
+        incrementPhase(nPitches, args.sampleRate, &nPhases, nlimit);
         tPhases += tPM;
         nPhases += nPM;
 
@@ -466,8 +476,11 @@ struct TorusModule : Module
             Zout += distortOuts[2][i];
         }
         
-        rack::simd::float_4 path{ Coord[0][0], Coord[1][0], Coord[2][0], 0.f};
-        pathToDraw = std::vector<rack::simd::float_4>{ path, Zero, Zero, Zero};
+        rack::simd::float_4 path{ Coord[0][0], Coord[1][0], Coord[2][0], 0.f };
+        rack::simd::float_4 path2{ Coord[0][1], Coord[1][1], Coord[2][1], 0.f };
+        rack::simd::float_4 path3{ Coord[0][2], Coord[1][2], Coord[2][2], 0.f };
+        rack::simd::float_4 path4{ Coord[0][3], Coord[1][3], Coord[2][3], 0.f};
+        pathToDraw = (path + path2 + path3 + path4) / 4.f; //std::vector<rack::simd::float_4>{path, path2, path3, path4};
 
         float xLerp = lerp(-5.f, 5.f, -(loudcomp), loudcomp, Xout);
         float yLerp = lerp(-5.f, 5.f, -(loudcomp), loudcomp, Yout);
@@ -562,62 +575,69 @@ struct TorusDrawWidget : Widget {
     std::vector<rack::simd::float_4> ProjectMatrix;
     rack::simd::float_4 angle{ 30.0 };
     rack::simd::float_4 anglerot{ 0.0 };
-    void drawLayer(const DrawArgs& args, int layer) override {
+    int drawboxX;
+    int drawboxY;
 
+    Vec LineDraw[MAX_LINE];
+
+    void drawPolyLine(const DrawArgs& args, Vec* line, float width, float color[4], int size) {
+        nvgBeginPath(args.vg);
+
+        nvgStrokeWidth(args.vg, width);
+        nvgStrokeColor(args.vg, nvgRGBAf(color[0], color[1], color[2], color[3]));
+        nvgMoveTo(args.vg, line[0].x, line[0].y);
+        for (int i = 1; i < size; ++i) {            
+            nvgLineTo(args.vg, line[i].x, line[i].y);
+        }
+        nvgStroke(args.vg);
+        nvgClosePath(args.vg);
+    }
+
+    void step() override {
+        drawboxX = box.size.x;
+        drawboxY = box.size.y;
+        //if (frames %= 16) {
+        anglerot += _2_PI / 360.f;
+        angle += _2_PI / 420.f;
+        //}
+        if (angle[0] > _2_PI) {
+            angle -= _2_PI;
+        }
+        if (anglerot[0] > _2_PI) {
+            anglerot -= _2_PI;
+        }
         RotMatrixZ = RotationXY(anglerot);
         RotMatrixX = RotationYZ(angle);
-        ProjectMatrix = Projection(1.f / 1.2f);
+        ProjectMatrix = Projection(1.f / 1.4f);
+
+        rack::simd::float_4 Line[MAX_LINE]{ 0 };
+        if (Tora->follow)Tora->follow->PeekPoints(Line);
+
+        frames++;
+        frames %= 64;
+
+        for (int d = 0; d < MAX_LINE; ++d) {
+
+            std::vector<rack::simd::float_4> LineVec{ Line[d], Zero, Zero, Zero };
+            LineVec = MatrixMult(RotMatrixZ, LineVec);
+            LineVec = MatrixMult(RotMatrixX, LineVec);
+            LineVec = MatrixMult(ProjectMatrix, LineVec);
+            LineDraw[d] = Vec(LineVec[0][0] + (drawboxX / 2), LineVec[0][1] + (drawboxY / 2));// *drawboxX / 1.6f;
+        }
+        Widget::step();
+    }
+    void drawLayer(const DrawArgs& args, int layer) override {
 
         if (layer == 1 && Tora) {
-            int drawboxX = box.size.x;
-            int drawboxY = box.size.y;
+
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
             nvgBeginPath(args.vg);
             nvgFillColor(args.vg, nvgRGBAf(0.62, 0.52, 0.75, 0.12));
             nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
             nvgFill(args.vg);
             nvgClosePath(args.vg);
-            //if (frames %= 16) {
-                anglerot += _2_PI / 360.f;
-                angle += _2_PI / 420.f;
-            //}
-            if (angle[0] > _2_PI) {
-                angle -=  _2_PI;
-            }
-            if (anglerot[0] > _2_PI) {
-                anglerot -=  _2_PI;
-            }
-            rack::simd::float_4 color{ Tora->tWind, Tora->nWind, Tora->drive, 1.f };
-
-            std::vector<rack::simd::float_4> Line;
-
-            if(Tora->follow)Tora->follow->PeekPoints(&Line);
-                
-            frames++;
-            frames %= 64;
-                
-            for (int d = 0; d < (int)Line.size(); ++d) {
-
-                std::vector<rack::simd::float_4> LineprevVec{ Line[abs(d - 1)], Zero, Zero, Zero };
-                LineprevVec = MatrixMult(RotMatrixZ, LineprevVec);
-                LineprevVec = MatrixMult(RotMatrixX, LineprevVec);
-                LineprevVec = MatrixMult(ProjectMatrix, LineprevVec);
-                rack::simd::float_4 Tailprev = LineprevVec[0];// *drawboxX / 1.6f;
-
-                std::vector<rack::simd::float_4> LineVec{ Line[d], Zero, Zero, Zero};
-                LineVec = MatrixMult(RotMatrixZ, LineVec);
-                LineVec = MatrixMult(RotMatrixX, LineVec);
-                LineVec = MatrixMult(ProjectMatrix, LineVec);
-                rack::simd::float_4 Tail = LineVec[0];// *drawboxX / 1.6f;
-
-                nvgBeginPath(args.vg);
-                nvgMoveTo(args.vg, Tailprev[0] + (drawboxX / 2), Tailprev[1] + (drawboxY / 2));
-                nvgLineTo(args.vg, Tail[0] + (drawboxX / 2), Tail[1] + (drawboxY / 2));
-                nvgStrokeWidth(args.vg, 1.62 );
-                nvgStrokeColor(args.vg, nvgRGBAf(color[2] / 10.0, color[1] / 5.0, color[0] / 5.0, color[3]));
-                nvgStroke(args.vg);
-            }
-               
+            float color[4]{ Tora->drive / 10.f, 0.2f + Tora->nWind / 5.f, 0.2f + Tora->tWind / 5.f,  1.f };
+            drawPolyLine(args, LineDraw, 1.62f, color, MAX_LINE);
         }
  
         Widget::drawLayer(args, layer);

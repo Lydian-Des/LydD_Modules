@@ -10,6 +10,7 @@ using namespace LydD;
 static const int maxPolyphony = 1;
 
 
+
 struct ShearModule : Module
 {
     enum ParamIds {
@@ -54,20 +55,24 @@ struct ShearModule : Module
     bool isinLeft = false;
     bool isinRight = false;
 
-    float cutoff = 0.f;
-    float resonance = 0.f;
+    float Cutoff = 0.f;
+    float Resonance = 0.f;
     float EvenOdd = 0.f;
-    float feedback = 0.f;
-    float skew = 0.f;
-    float combSumLeft = 0;
-    float combSumRight = 0;
-    float BandsLeft[12] = { 0.f };
-    float BandsRight[12] = { 0.f };
+    float Feedback = 0.f;
+    float Skew = 0.f;
+    //float combSumLeft = 0;
+    //float combSumRight = 0;
+    LydD::Buffers::FrameStereo<float, 2> Comb_Sum;
+    //float BandsLeft[12] = { 0.f };
+    //float BandsRight[12] = { 0.f };
+    LydD::Buffers::FrameStereo<float, 2> BANDS[12];
     float visData[6] = { 0.f };
 
     //thank goud for these little guys
-    rack::dsp::BiquadFilter _CombL[12];
-    rack::dsp::BiquadFilter _CombR[12];
+    //rack::dsp::BiquadFilter _CombL[12];
+    //rack::dsp::BiquadFilter _CombR[12];
+    //new and 'improved'
+    LydD::Filter::Multi_Channel_BiQuad_Filter<float, 2, LydD::Filter::BiQuad_Types::BANDPASS> _COMBS[12];
 
     ShearModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -77,8 +82,9 @@ struct ShearModule : Module
         configParam(EVEN_ODD_PARAM, -1.f, 1.f, 0.f, "Even / Odd");
         configParam(SKEW_PARAM, -1.f, 1.f, 0.f, "Skew");
         for (int i = 0; i < 12; ++i) {
-            _CombL[i].reset();
-            _CombR[i].reset();
+            //_CombL[i].reset();
+            //_CombR[i].reset();
+            _COMBS[i].reset();
         }
         configInput(AUDIOLEFT_INPUT, "Audio Left");
         configInput(AUDIORIGHT_INPUT, "Audio Right");
@@ -122,32 +128,35 @@ struct ShearModule : Module
         float cutpar = params[CUTOFF_PARAM].value;
         float cutin = (inputs[CUTOFF_INPUT].isConnected()) ? rack::math::clamp(inputs[CUTOFF_INPUT].getVoltage(0), -3.f, 3.f) : 0.f;
         
-        cutoff = (VoltToFreq(cutpar + cutin, 0.f, 130.8125)) / args.sampleRate;
-        cutoff = rack::math::clamp(cutoff, 0.f, 0.49f / 12.f); //absolute limit for filter is 0.5, and I have 12 bands up the spectrum 
+        Cutoff = (VoltToFreq(cutpar + cutin, 0.f, 130.8125)) / args.sampleRate;
+        Cutoff = rack::math::clamp(Cutoff, 0.f, 0.49f / 12.f); //absolute limit for filter is 0.5, and I have 12 bands up the spectrum 
         
         float respar = params[RESONANCE_PARAM].value;
         float resin = (inputs[RESONANCE_INPUT].isConnected()) ? rack::math::clamp(abs(inputs[RESONANCE_INPUT].getVoltage(0) / 10.f), 0.f, 0.9f) : 1.f;
-        resonance = respar * resin;
+        Resonance = rack::math::clamp(respar * resin, 0.f, 1.f);
 
         float evenoddpar = params[EVEN_ODD_PARAM].value;
         float evenoddin = inputs[EVEN_ODD_INPUT].isConnected() ? rack::math::clamp(inputs[EVEN_ODD_INPUT].getVoltage(0) / 5.f, -1.f, 1.f) : 1.f;
         EvenOdd = evenoddpar * evenoddin;
 
-        skew = params[SKEW_PARAM].value;
+        Skew = params[SKEW_PARAM].value;
 
-        float Q = (resonance * 45) + 4.f;
-        _CombL[0].setParameters(_CombL[0].BANDPASS, cutoff, Q, 1.2f);
-        _CombR[0].setParameters(_CombR[0].BANDPASS, cutoff, Q, 1.2f);
+        float Q = (Resonance * 45) + 4.f;
+        //_CombL[0].setParameters(_CombL[0].BANDPASS, Cutoff, Q, 1.2f);
+        //_CombR[0].setParameters(_CombR[0].BANDPASS, Cutoff, Q, 1.2f);
+        _COMBS[0].setParameters(Cutoff, Q, (Resonance * 2.f + 0.4));
         
         for (int i = 1; i < 12; ++i) {
-            float cutoffClamp = rack::math::clamp(cutoff * (i + 1.f + (skew / 2.f)), 0.f, 0.499f);
-            _CombL[i].setParameters(_CombL[i].BANDPASS, cutoffClamp, Q, (resonance * 2.f + 0.4) * (1.f / (i + 1)));
-            _CombR[i].setParameters(_CombR[i].BANDPASS, cutoffClamp, Q, (resonance * 2.f + 0.4) * (1.f / (i + 1)));
+            float cutoffClamp = rack::math::clamp(Cutoff * (i + 1.f + (Skew / 2.f)), 0.f, 0.499f);
+            //_CombL[i].setParameters(_CombL[i].BANDPASS, cutoffClamp, Q, (Resonance * 2.f + 0.4) * (1.f / (i + 1)));
+            //_CombR[i].setParameters(_CombR[i].BANDPASS, cutoffClamp, Q, (Resonance * 2.f + 0.4) * (1.f / (i + 1)));
+            _COMBS[i].setParameters(cutoffClamp, Q, (Resonance * 2.f + 0.4) * (1.f / (i + 1)));
+
         }
 
         float feedbackpar = params[FEEDBACK_PARAM].value;
         float feedbackin = inputs[FEEDBACK_INPUT].isConnected() ? inputs[FEEDBACK_INPUT].getVoltage(0) : 1.f;
-        feedback = (feedbackpar * feedbackin) / 2.f;
+        Feedback = rack::math::clamp((feedbackpar * feedbackin) / 2.f, 0.f, 0.6f);
 
         isExternalFeedL = outputs[FEEDLEFT_SEND_OUTPUT].isConnected() && inputs[FEEDLEFT_RETURN_INPUT].isConnected();
         isExternalFeedR = outputs[FEEDRIGHT_SEND_OUTPUT].isConnected() && inputs[FEEDRIGHT_RETURN_INPUT].isConnected();
@@ -165,69 +174,88 @@ struct ShearModule : Module
 
     void generateOutput(const ProcessArgs& args) {
        
-               
-        float audinLeft = 0.f;
-        float audinRight = 0.f;
+        LydD::Buffers::FrameStereo<float, 2> audio_in(0.f);
+        //float audinLeft = 0.f;
+        //float audinRight = 0.f;
         //cascade normal and add feedback in
         if (isinLeft) {
-            audinLeft = inputs[AUDIOLEFT_INPUT].getVoltage(0) / 2.5f;
-            audinLeft += (feedback * 0.99f * combSumLeft);
+            audio_in[0] = inputs[AUDIOLEFT_INPUT].getVoltage(0) / 2.5f;
+            audio_in[0] += (Feedback * 0.99f * Comb_Sum[0]);
             if (isExternalFeedL) {
                 float feedloopL = inputs[FEEDLEFT_RETURN_INPUT].getVoltage(0) / 2.5f;
-                audinLeft += (feedback * 0.99f * feedloopL);
+                audio_in[0] += (Feedback * 0.99f * feedloopL);
             }
         
         }
         if (isinRight) {
-            audinRight = inputs[AUDIORIGHT_INPUT].getVoltage(0) / 2.5f;
-            audinRight += (feedback * 0.99f * combSumRight);
+            audio_in[1] = inputs[AUDIORIGHT_INPUT].getVoltage(0) / 2.5f;
+            audio_in[1] += (Feedback * 0.99f * Comb_Sum[1]);
             if (isExternalFeedR) {
                 float feedloopR = inputs[FEEDRIGHT_RETURN_INPUT].getVoltage(0) / 2.5f;
-                audinRight += (feedback * 0.99f * feedloopR);
+                audio_in[1] += (Feedback * 0.99f * feedloopR);
             }
 
         }
         else {
-            audinRight = audinLeft;
+            audio_in[1] = audio_in[0];
         }
 
         //process 1st band then add others to it in loop
-        BandsLeft[0] = _CombL[0].process(audinLeft);
-        BandsRight[0] = _CombR[0].process(audinRight);
-        combSumLeft = BandsLeft[0];
-        combSumRight = BandsRight[0];
+        //BandsLeft[0] = _CombL[0].process(audinLeft);
+        //BandsRight[0] = _CombR[0].process(audinRight);
+        //combSumLeft = BandsLeft[0];
+        //combSumRight = BandsRight[0];
+        BANDS[0] = _COMBS[0].process(audio_in);
+        Comb_Sum = BANDS[0];
         for (int i = 1; i < 12; ++i) {
             float eveness = (i % 2 == 1) ? (EvenOdd) : (-EvenOdd);
-            BandsLeft[i] = _CombL[i].process(audinLeft);
-            combSumLeft += BandsLeft[i] * (( eveness ) / 2.f + 0.5f);
-            BandsRight[i] = _CombR[i].process(audinRight);
-            combSumRight += BandsRight[i] * (( eveness ) / 2.f + 0.5f);
+            //BandsLeft[i] = _CombL[i].process(audinLeft);
+            //combSumLeft += BandsLeft[i] * (( eveness ) / 2.f + 0.5f);
+            //BandsRight[i] = _CombR[i].process(audinRight);
+            //combSumRight += BandsRight[i] * (( eveness ) / 2.f + 0.5f);
+            BANDS[i] = _COMBS[i].process(audio_in);
+            Comb_Sum += BANDS[i] * ((eveness) / 2.f + 0.5f);
         }
         //clamp to +-1 (should already be close) then enlarge with resonance, as the cutting tends to reduce volume
-        combSumLeft = rack::math::clamp(combSumLeft, -1.f, 1.f);
-        combSumRight = rack::math::clamp(combSumRight, -1.f, 1.f);
-        combSumLeft *= resonance + 1.f;
-        combSumRight *= resonance + 1.f;
+        //combSumLeft = rack::math::clamp(combSumLeft, -1.f, 1.f);
+        //combSumRight = rack::math::clamp(combSumRight, -1.f, 1.f);
+        //combSumLeft *= Resonance + 1.f;
+        //combSumRight *= Resonance + 1.f;
+        // 
+        //dont have all the overloads for clamp yet
+        //Comb_Sum[0] = rack::math::clamp(Comb_Sum[0], -1.f, 1.f);
+        //Comb_Sum[1] = rack::math::clamp(Comb_Sum[1], -1.f, 1.f);
+        Comb_Sum *= Resonance + 1.f;
+
 
         
         for (int d = 0; d < 3; ++d) { //give Vis lights somethin to work with, cutting out some floor movement
-            visData[d] = (combSumLeft <= -0.001f || combSumLeft >= 0.001f) ? _CombL[d].getFrequencyPhase(BandsLeft[d]) * 0.4 : 0.f;
-            visData[d + 3] = (combSumRight <= -0.001f || combSumRight >= 0.001f) ? _CombR[d].getFrequencyPhase(BandsRight[d]) * 0.4 : 0.f;
+            visData[d] = (Comb_Sum[0] <= -0.001f || Comb_Sum[0] >= 0.001f) ? _COMBS[d].getFrequencyPhase(BANDS[d][0]) * 0.4 : 0.f;
+            visData[d + 3] = (Comb_Sum[1] <= -0.001f || Comb_Sum[1] >= 0.001f) ? _COMBS[d].getFrequencyPhase(BANDS[d][1]) * 0.4 : 0.f;
         }
 
-        float outLeft = driveClamp(combSumLeft);
-        float outRight = driveClamp(combSumRight);
+        float outLeft = Comb_Sum[0];// driveClamp(Comb_Sum[0]);
+        float outRight = Comb_Sum[1];// driveClamp(Comb_Sum[1]);
         //don't send driven signal to feedback, keeps things tamer
-        outputs[FEEDLEFT_SEND_OUTPUT].setVoltage(combSumLeft * (5.f), 0);
-        outputs[FEEDRIGHT_SEND_OUTPUT].setVoltage(combSumRight * (5.f), 0);
+        outputs[FEEDLEFT_SEND_OUTPUT].setVoltage(Comb_Sum[0] * (5.f), 0);
+        outputs[FEEDRIGHT_SEND_OUTPUT].setVoltage(Comb_Sum[1] * (5.f), 0);
         outputs[AUDIOLEFT_OUTPUT].setVoltage(outLeft, 0);
         outputs[AUDIORIGHT_OUTPUT].setVoltage(outRight, 0);
     }
 
     void onReset(const ResetEvent& e) override {
         //failsafe
-        combSumLeft = 0;
-        combSumRight = 0;
+        //combSumLeft = 0;
+        //combSumRight = 0;
+        for (int i = 1; i < 12; ++i) {
+            _COMBS[i].reset();
+            BANDS[i] = 0.f;
+        }
+        Comb_Sum = 0.f;
+        outputs[FEEDLEFT_SEND_OUTPUT].setVoltage(0.f, 0);
+        outputs[FEEDRIGHT_SEND_OUTPUT].setVoltage(0.f, 0);
+        outputs[AUDIOLEFT_OUTPUT].setVoltage(0.f, 0);
+        outputs[AUDIORIGHT_OUTPUT].setVoltage(0.f, 0);
     }
     //nothing to save so the relic sits untouched
     json_t* dataToJson() override {
@@ -284,7 +312,7 @@ struct LineLight : ModuleLightWidget {
     void drawLight(const widget::Widget::DrawArgs& args) override {
         // Derived from LightWidget::drawLight()
         float colflag = module->visData[flag];
-        this->color.a = module->feedback / 2.f + 0.4f;
+        this->color.a = module->Feedback / 2.f + 0.4f;
         switch (flag) {
         case 0: {
         }

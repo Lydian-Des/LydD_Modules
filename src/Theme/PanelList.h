@@ -31,7 +31,7 @@ struct PanelMenu : MenuItem {
 	Menu* createChildMenu() override {
 		Menu* menu = new Menu;
 
-		ListItem* OriginalMenuItem = createMenuItem<ListItem>("Dark", CHECKMARK(module->currPanel == 0));
+		ListItem* OriginalMenuItem = createMenuItem<ListItem>("Dark (Original)", CHECKMARK(module->currPanel == 0));
 		OriginalMenuItem->module = module;
 		OriginalMenuItem->Panel = 0;
 		menu->addChild(OriginalMenuItem);
@@ -53,14 +53,19 @@ struct PanelMenu : MenuItem {
 		RedMenuItem->Panel = 3;
 		menu->addChild(RedMenuItem);
 
-		ListItem* WhiteMenuItem = createMenuItem<ListItem>("White", CHECKMARK(module->currPanel == 4));
+		ListItem* FruitMenuItem = createMenuItem<ListItem>("Fruitiger Aero", CHECKMARK(module->currPanel == 4));
+		FruitMenuItem->module = module;
+		FruitMenuItem->Panel = 4;
+		menu->addChild(FruitMenuItem);
+
+		ListItem* WhiteMenuItem = createMenuItem<ListItem>("White", CHECKMARK(module->currPanel == 5));
 		WhiteMenuItem->module = module;
-		WhiteMenuItem->Panel = 4;
+		WhiteMenuItem->Panel = 5;
 		menu->addChild(WhiteMenuItem);
 
-		ListItem* SoulMenuItem = createMenuItem<ListItem>("Soulless", CHECKMARK(module->currPanel == 5));
+		ListItem* SoulMenuItem = createMenuItem<ListItem>("Soulless", CHECKMARK(module->currPanel == 6));
 		SoulMenuItem->module = module;
-		SoulMenuItem->Panel = 5;
+		SoulMenuItem->Panel = 6;
 		menu->addChild(SoulMenuItem);
 
 		return menu;
@@ -75,17 +80,15 @@ struct DefaultPanelMenu : MenuItem {
 
 		int currDefault = getDefPanel(false);
 
-		DefaultListItem* OriginalMenuItem = createMenuItem<DefaultListItem>("Dark", CHECKMARK(currDefault == 0));
+		DefaultListItem* OriginalMenuItem = createMenuItem<DefaultListItem>("Dark (Original)", CHECKMARK(currDefault == 0));
 		OriginalMenuItem->module = module;
 		OriginalMenuItem->Panel = 0;
 		menu->addChild(OriginalMenuItem);
-
 
 		DefaultListItem* BlueMenuItem = createMenuItem<DefaultListItem>("Blue Night", CHECKMARK(currDefault == 1));
 		BlueMenuItem->module = module;
 		BlueMenuItem->Panel = 1;
 		menu->addChild(BlueMenuItem);
-
 
 		DefaultListItem* PurpleMenuItem = createMenuItem<DefaultListItem>("Purple Jewel", CHECKMARK(currDefault == 2));
 		PurpleMenuItem->module = module;
@@ -97,14 +100,19 @@ struct DefaultPanelMenu : MenuItem {
 		RedMenuItem->Panel = 3;
 		menu->addChild(RedMenuItem);
 
-		DefaultListItem* WhiteMenuItem = createMenuItem<DefaultListItem>("White", CHECKMARK(currDefault == 4));
+		DefaultListItem* FruitMenuItem = createMenuItem<DefaultListItem>("Fruitiger Aero", CHECKMARK(currDefault == 4));
+		FruitMenuItem->module = module;
+		FruitMenuItem->Panel = 4;
+		menu->addChild(FruitMenuItem);
+
+		DefaultListItem* WhiteMenuItem = createMenuItem<DefaultListItem>("White", CHECKMARK(currDefault == 5));
 		WhiteMenuItem->module = module;
-		WhiteMenuItem->Panel = 4;
+		WhiteMenuItem->Panel = 5;
 		menu->addChild(WhiteMenuItem);
 
-		DefaultListItem* SoulMenuItem = createMenuItem<DefaultListItem>("Soulless", CHECKMARK(currDefault == 5));
+		DefaultListItem* SoulMenuItem = createMenuItem<DefaultListItem>("Soulless", CHECKMARK(currDefault == 6));
 		SoulMenuItem->module = module;
-		SoulMenuItem->Panel = 5;
+		SoulMenuItem->Panel = 6;
 		menu->addChild(SoulMenuItem);
 
 		return menu;

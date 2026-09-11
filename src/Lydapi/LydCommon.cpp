@@ -12,28 +12,28 @@ namespace LydD {
         return (x < 0) ? (int)floor(x) : (int)ceil(x);
     }
 
-    template<>
-    int wraparound(int val, int max) {
+   /* template<>
+    int wraparound(int val, int dt, int max, bool is_decrement = false) {
         int mod = 0;
         if (max == 0) return mod;
         if (val < 0) {
             mod = (-val / max) + 1;
         }
         return (val + max * mod) % max;
-    }
+    }*/
     //i think this one would break if 'val' jumped backward enough to wrap beyond INT_MAX - max
-    template<>
-    size_t wraparound(size_t val, size_t max) {
+    /*template<>
+    size_t wraparound(size_t val, size_t dt, size_t max , bool is_decrement = false) {
         size_t mod = 0;
         if (max == 0) return mod;
-        //size_t's dont go negative, they wrap to int_max
+       
         if (val > INT_MAX - max) {
             size_t dif = INT_MAX - val;
             val = max - dif;
             mod = (-val / max) + 1;
         }
         return (val + max * mod) % max;
-    }
+    }*/
 
     void HannWindow(float time, float* val, float* window) {
         float wind = 1.f - (1.f * pow(cos(_PI * time), 4.f));

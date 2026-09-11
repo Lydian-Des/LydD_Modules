@@ -1,12 +1,265 @@
 #pragma once
 #include <atomic>
-
+#include <complex>
+#include "LydBuffers.h"
+using namespace LydD::Buffers;
 namespace LydD {
 
 namespace Filter {
-
-	
+	static const float SQRT_2 = 1.4142135623721f;
+	//real lazy but itll remove anything above nyquist
+	template <typename T = float>
+	inline T lazyAlias(T in, T lastin) {
+		return (lastin + in) * 0.5;
+	}
 		
+
+	//T being parameter type e.g. float_4, double etc.
+	//C being a multi-channel struct that overloads enough math operations and is directly indexable
+	// but could  also be same type for simpler operation(then it is literally just racks IIR and BiQuad)
+	template<int B_ORDER, int A_ORDER, typename T = float, int N_C = 2>
+	struct Multi_Channel_IIR_Filter {
+		/** transfer function numerator coefficients: b_0, b_1, etc.
+		*/
+		T b[B_ORDER] = {};
+		/** transfer function denominator coefficients: a_1, a_2, etc.
+		a_0 is fixed to 1 and omitted from the `a` array, so its indices are shifted down by 1.
+		*/
+		T a[A_ORDER - 1] = {};
+		/** input state
+		x[0] = x_{n-1}
+		x[1] = x_{n-2}
+		etc.
+		*/
+		FrameStereo<T, N_C> x[B_ORDER - 1];
+		/** output state */
+		FrameStereo<T, N_C>  y[A_ORDER - 1];
+
+		Multi_Channel_IIR_Filter() {
+			reset();
+		}
+
+		void reset() {
+			for (int i = 1; i < B_ORDER; i++) {
+				x[i - 1] = 0.f;
+			}
+			for (int i = 1; i < A_ORDER; i++) {
+				y[i - 1] = 0.f;
+			}
+		}
+
+		void setCoefficients(const T* b, const T* a) {
+			for (int i = 0; i < B_ORDER; i++) {
+				this->b[i] = b[i];
+			}
+			for (int i = 1; i < A_ORDER; i++) {
+				this->a[i - 1] = a[i - 1];
+			}
+		}
+
+		FrameStereo<T, N_C>  process(FrameStereo<T, N_C>  in) {
+			FrameStereo<T, N_C>  out(0.f);
+			// Add x state
+			if (0 < B_ORDER) {
+				out = b[0] * in;
+			}
+			for (int i = 1; i < B_ORDER; i++) {
+				out += b[i] * x[i - 1];
+			}
+			// Subtract y state
+			for (int i = 1; i < A_ORDER; i++) {
+				out -= a[i - 1] * y[i - 1];
+			}
+			// Shift x state
+			for (int i = B_ORDER - 1; i >= 2; i--) {
+				x[i - 1] = x[i - 2];
+			}
+			x[0] = in;
+			// Shift y state
+			for (int i = A_ORDER - 1; i >= 2; i--) {
+				y[i - 1] = y[i - 2];
+			}
+			y[0] = out;
+			return out;
+		}
+		//cant get transfer function etc for multichannel right now
+		//so send this one channel that honestly should be of the same type at that point as parameters
+		/** Computes the complex transfer function $H(s)$ at a particular frequency
+	s: normalized angular frequency equal to $2 \pi f / f_{sr}$ ($\pi$ is the Nyquist frequency)
+	*/
+		std::complex<T> getTransferFunction(T s) {
+			// Compute sum(a_k z^-k) / sum(b_k z^-k) where z = e^(i s)
+			std::complex<T> bSum(b[0], 0);
+			std::complex<T> aSum(1, 0);
+			for (int i = 1; i < std::max(B_ORDER, A_ORDER); i++) {
+				T p = -i * s;
+				std::complex<T> z(rack::simd::cos(p), rack::simd::sin(p));
+				if (i < B_ORDER)
+					bSum += b[i] * z;
+				if (i < A_ORDER)
+					aSum += a[i - 1] * z;
+			}
+			return bSum / aSum;
+		}
+
+		T getFrequencyResponse(T f) {
+			return rack::simd::abs(getTransferFunction(_2_PI * f));
+		}
+
+		T getFrequencyPhase(T f) {
+			return rack::simd::arg(getTransferFunction(_2_PI * f));
+		}
+	};
+	//make biquad type set at compile time
+	//destroys swtich branching
+	enum class BiQuad_Types {
+		LOWPASS_1POLE,
+		HIGHPASS_1POLE,
+		LOWPASS,
+		HIGHPASS,
+		LOWSHELF,
+		HIGHSHELF,
+		BANDPASS,
+		PEAK,
+		NOTCH,
+		NUM_TYPES
+	};
+
+	template<typename T = float, int N_C = 2, BiQuad_Types TYPE = BiQuad_Types::LOWPASS>
+	struct Multi_Channel_BiQuad_Filter : Multi_Channel_IIR_Filter<3, 3, T, N_C> {
+
+		Multi_Channel_BiQuad_Filter() {
+			setParameters(0.f, 0.f, 1.f, TYPE);
+		}
+
+		/** Calculates and sets the biquad transfer function coefficients.
+		f: normalized frequency (cutoff frequency / sample rate), must be less than 0.5
+		Q: quality factor
+		V: gain
+		*/
+		//still allows to change type, but if left unfilled should remove switching
+		void setParameters(T f, T Q, T V, BiQuad_Types type = TYPE) {
+			T K = rack::simd::tan(_PI * f);
+			switch (type) {
+			case BiQuad_Types::LOWPASS_1POLE: {
+				this->a[0] = -std::exp(-_2_PI * f);
+				this->a[1] = 0.f;
+				this->b[0] = 1.f + this->a[0];
+				this->b[1] = 0.f;
+				this->b[2] = 0.f;
+			} break;
+
+			case BiQuad_Types::HIGHPASS_1POLE: {
+				this->a[0] = std::exp(-_2_PI * (0.5f - f));
+				this->a[1] = 0.f;
+				this->b[0] = 1.f - this->a[0];
+				this->b[1] = 0.f;
+				this->b[2] = 0.f;
+			} break;
+
+			case BiQuad_Types::LOWPASS: {
+				T norm = 1.f / (1.f + K / Q + K * K);
+				this->b[0] = K * K * norm;
+				this->b[1] = 2.f * this->b[0];
+				this->b[2] = this->b[0];
+				this->a[0] = 2.f * (K * K - 1.f) * norm;
+				this->a[1] = (1.f - K / Q + K * K) * norm;
+			} break;
+
+			case BiQuad_Types::HIGHPASS: {
+				T norm = 1.f / (1.f + K / Q + K * K);
+				this->b[0] = norm;
+				this->b[1] = -2.f * this->b[0];
+				this->b[2] = this->b[0];
+				this->a[0] = 2.f * (K * K - 1.f) * norm;
+				this->a[1] = (1.f - K / Q + K * K) * norm;
+
+			} break;
+
+			case BiQuad_Types::LOWSHELF: {
+				T sqrtV = std::sqrt(V);
+				if (V >= 1.f) {
+					float norm = 1.f / (1.f + SQRT_2 * K + K * K);
+					this->b[0] = (1.f + SQRT_2 * sqrtV * K + V * K * K) * norm;
+					this->b[1] = 2.f * (V * K * K - 1.f) * norm;
+					this->b[2] = (1.f - SQRT_2 * sqrtV * K + V * K * K) * norm;
+					this->a[0] = 2.f * (K * K - 1.f) * norm;
+					this->a[1] = (1.f - SQRT_2 * K + K * K) * norm;
+				}
+				else {
+					float norm = 1.f / (1.f + SQRT_2 / sqrtV * K + K * K / V);
+					this->b[0] = (1.f + SQRT_2 * K + K * K) * norm;
+					this->b[1] = 2.f * (K * K - 1) * norm;
+					this->b[2] = (1.f - SQRT_2 * K + K * K) * norm;
+					this->a[0] = 2.f * (K * K / V - 1.f) * norm;
+					this->a[1] = (1.f - SQRT_2 / sqrtV * K + K * K / V) * norm;
+				}
+			} break;
+
+			case BiQuad_Types::HIGHSHELF: {
+				T sqrtV = std::sqrt(V);
+				if (V >= 1.f) {
+					float norm = 1.f / (1.f + SQRT_2 * K + K * K);
+					this->b[0] = (V + SQRT_2 * sqrtV * K + K * K) * norm;
+					this->b[1] = 2.f * (K * K - V) * norm;
+					this->b[2] = (V - SQRT_2 * sqrtV * K + K * K) * norm;
+					this->a[0] = 2.f * (K * K - 1.f) * norm;
+					this->a[1] = (1.f - SQRT_2 * K + K * K) * norm;
+				}
+				else {
+					float norm = 1.f / (1.f / V + SQRT_2 / sqrtV * K + K * K);
+					this->b[0] = (1.f + SQRT_2 * K + K * K) * norm;
+					this->b[1] = 2.f * (K * K - 1.f) * norm;
+					this->b[2] = (1.f - SQRT_2 * K + K * K) * norm;
+					this->a[0] = 2.f * (K * K - 1.f / V) * norm;
+					this->a[1] = (1.f / V - SQRT_2 / sqrtV * K + K * K) * norm;
+				}
+			} break;
+
+			case BiQuad_Types::BANDPASS: {
+				T norm = 1.f / (1.f + K / Q + K * K);
+				this->b[0] = K / Q * norm;
+				this->b[1] = 0.f;
+				this->b[2] = -this->b[0];
+				this->a[0] = 2.f * (K * K - 1.f) * norm;
+				this->a[1] = (1.f - K / Q + K * K) * norm;
+			} break;
+
+			case BiQuad_Types::PEAK: {
+				if (V >= 1.f) {
+					T norm = 1.f / (1.f + K / Q + K * K);
+					this->b[0] = (1.f + K / Q * V + K * K) * norm;
+					this->b[1] = 2.f * (K * K - 1.f) * norm;
+					this->b[2] = (1.f - K / Q * V + K * K) * norm;
+					this->a[0] = this->b[1];
+					this->a[1] = (1.f - K / Q + K * K) * norm;
+				}
+				else {
+					T norm = 1.f / (1.f + K / Q / V + K * K);
+					this->b[0] = (1.f + K / Q + K * K) * norm;
+					this->b[1] = 2.f * (K * K - 1.f) * norm;
+					this->b[2] = (1.f - K / Q + K * K) * norm;
+					this->a[0] = this->b[1];
+					this->a[1] = (1.f - K / Q / V + K * K) * norm;
+				}
+			} break;
+
+			case BiQuad_Types::NOTCH: {
+				T norm = 1.f / (1.f + K / Q + K * K);
+				this->b[0] = (1.f + K * K) * norm;
+				this->b[1] = 2.f * (K * K - 1.f) * norm;
+				this->b[2] = this->b[0];
+				this->a[0] = this->b[1];
+				this->a[1] = (1.f - K / Q + K * K) * norm;
+			} break;
+
+			default: break;
+			}
+		}
+	};
+
+
+
 
 	//single ringbuffer allpass w/ a 'lowest' cutoff of S samples before it loops back on itself in time
 	template <typename T = float, size_t S = 2048>
@@ -15,8 +268,8 @@ namespace Filter {
 		T Buf[S];
 		T blok[8];
 		std::atomic<size_t> blkhd;
-		T Foffset;
-		T Gcoeff;
+		float Foffset;
+		float Gcoeff;
 		void reset() {
 			std::memset(Buf, 0.f, sizeof(T) * S);
 			ind = 0;
@@ -25,23 +278,24 @@ namespace Filter {
 		AllPass1st() {
 			this->reset();
 		}
-		void setCoeffs(T freq, T gain, float samplerate) {
+		void setCoeffs(float freq, float gain, float samplerate) {
 			this->Gcoeff = gain;
 			this->Foffset = FreqToSampleF(freq, samplerate);
 		}
-		void setCoeffsSample(T samples, T gain) {
+		void setCoeffsSample(float samples, float gain) {
 			this->Gcoeff = gain;
 			this->Foffset = samples;
 		}
 		//any nested allpass must have its Coeffs set independant
 		inline T process(T in, AllPass1st* nest = nullptr) {
-			size_t idx = wraparound((this->ind % S) - (int)this->Foffset, S);
+			size_t idx = wraparound(this->ind.load(), size_t(this->Foffset), S, true);
 			T del = this->Buf[idx];  
 			this->blok[blkhd % 8] = del;
 			T inM = in - (del * this->Gcoeff);
 			T out = /*cubicLerp(this->blok, (blkhd - 2) % 8, this->Foffset, 8)*/ del + (inM * this->Gcoeff); //lerp 4 output from 2 in the past to smooth time changes
 			
 			this->Buf[this->ind % S] = inM;
+			this->Buf[idx] = 0;
 			if (nest) this->Buf[this->ind % S] = nest->process(inM);
 			++this->ind;
 			++this->blkhd;
@@ -62,9 +316,9 @@ namespace Filter {
 			this->reset();
 		}
 		//fund = setof initial delays, mod between 0 - 1, trgt = set of spread delays
-		void setSmear(T* fund, T mod, T* trgt, float sr) {
+		void setSmear(float* fund, float mod, float* trgt, float sr) {
 			for (int b = 0; b < N; ++b) {
-				AllP[b].setCoeffs(fund[b] + (mod * mod * trgt[b]), 0.35f, sr);
+				AllP[b].setCoeffs(fund[b] + (mod * trgt[b]), 0.35f, sr);
 			}
 		}
 
@@ -127,8 +381,8 @@ namespace Filter {
 		
 		inline T process(T in) {
 			this->X[wh] = in;
-			this->Y[wh] = (this->a[0] * this->X[this->wh]) + (this->a[1] * this->X[wraparound(this->wh - 1, 3)]) + (this->a[2] * this->X[wraparound(this->wh - 2, 3)])
-				- (this->b[1] * this->Y[wraparound(this->wh - 1, 3)]) - (this->b[2] * this->Y[wraparound(this->wh - 2, 3)]);
+			this->Y[wh] = (this->a[0] * this->X[this->wh]) + (this->a[1] * this->X[wraparound(this->wh, 1, 3, true)]) + (this->a[2] * this->X[wraparound(this->wh, 2, 3, true)])
+				- (this->b[1] * this->Y[wraparound(this->wh, 1, 3, true)]) - (this->b[2] * this->Y[wraparound(this->wh, 2, 3, true)]);
 			/*T Y = 0;
 
 			this->V[this->wh] = a[2] * in - ((a[1]) * this->V[wraparound(this->wh - 1, 3)])
@@ -142,8 +396,8 @@ namespace Filter {
 		}
 		
 	};
-
-	template <typename T = float>
+	//some types u want filtered dont want the same type as parameters
+	template <typename T = float, typename P = T>
 	struct SFRCFilter {
 		rack::dsp::TRCFilter<T> _low;
 		rack::dsp::TRCFilter<T> _high;
@@ -155,17 +409,20 @@ namespace Filter {
 		SFRCFilter() {
 			this->reset();
 		}
-		void setCut(T f, float sr) {
+		void setCut(P f, float sr) {
 			_low.setCutoffFreq(f / sr);
 			_high.setCutoffFreq((f + 100.f) / sr);
 		}
-		T process(T in, T p) {
+
+		T process(T in, P cf) {
 			_low.process(in);
 			_high.process(in);
-			T out = rack::simd::crossfade(_low.lowpass(), _high.highpass(), p);
+			T out = base_crossfade(_low.lowpass(), _high.highpass(), cf);
 			return out;
 		}
 	};
+
+
 
 	//WARNING:: S must be a power of 2
 	//for one-in/one-out style delays
@@ -190,7 +447,7 @@ namespace Filter {
 			delete[] Buf;
 		}
 		virtual void push(T in) {
-			size_t ci = wh & M;
+			size_t ci = this->wh & M;
 			this->Buf[ci] = in;
 			this->Buf[(ci)+S] = in;
 			this->wh.store(this->wh + 1);
@@ -199,7 +456,6 @@ namespace Filter {
 			size_t ri = this->rh & M;
 			this->rh.store(this->rh + 1);
 			return this->Buf[ri];
-			
 		}
 	};
 
@@ -250,7 +506,7 @@ namespace Filter {
 		using BA = BaseDoubleRing<T, S>;
 		inline T pull() override {
 			T fridx = BA::rh - DC::Freq;
-			size_t idx = wraparound(int(fridx), int(S));
+			size_t idx = wraparound(BA::rh.load(), size_t(DC::Freq), S, true);
 			DC::blok[DC::blkhd % 8] = BA::Buf[idx];
 			T out = cubicLerp(DC::blok, (DC::blkhd - 2) % 8, fridx, 8);
 			BA::rh.store(BA::rh + 1);
@@ -265,8 +521,8 @@ namespace Filter {
 		using DC = DelayCombBase<U, S>;
 		using BA = BaseDoubleRing<U, S>;
 		inline U pull() override {
-			size_t ci = BA::rh & BA::M;
-			U _idx = wraparound(U{ ci - DC::Freq }, U{ S });// rack::simd::floor(wraparound((ci)-this->Freq, (T)S));
+			U ci = (float)BA::rh - DC::Freq;
+			U _idx = wraparound(U{ BA::rh }, U{ DC::Freq }, U{ S }, true);// rack::simd::floor(wraparound((ci)-this->Freq, (T)S));
 			size_t idx0 = static_cast<size_t>(_idx[0]); //grab each index from indpendent delay times
 			size_t idx1 = static_cast<size_t>(_idx[1]);
 			size_t idx2 = static_cast<size_t>(_idx[2]);
@@ -310,12 +566,12 @@ namespace Filter {
 		~FFPuller() {}
 		inline T pull() override {
 			T fridx = BA::rh - DC::Freq;
-			size_t idx = wraparound(int(fridx), int(S));
+			size_t idx = wraparound(int(BA::rh), int(DC::Freq), int(S), true);
 			DC::blok[DC::blkhd] = BA::Buf[idx];
 			T delsm = cubicLerp(DC::blok, (DC::blkhd), fridx, 8);
 			T out = (DC::Dry) + (DC::Inverting * (delsm * DC::FeedGain));
 			BA::rh.store(BA::rh + 1);
-			DC::blkhd.store(DC::blkhd + 1) % 8;
+			DC::blkhd.store((DC::blkhd + 1) & 7);
 			return out;
 		}
 	};
@@ -329,8 +585,8 @@ namespace Filter {
 		FFPuller() {}
 		~FFPuller() {}
 		inline U pull() override {
-			size_t ci = BA::rh & BA::M;
-			U _idx = wraparound(U{ ci - DC::Freq }, U{ S });// rack::simd::floor(wraparound((ci)-this->Freq, (T)S));
+			//U ci = (float)BA::rh - DC::Freq;
+			U _idx = wraparound(U{ static_cast<float>(BA::rh.load())}, U{DC::Freq}, U{S}, true);// rack::simd::floor(wraparound((ci)-this->Freq, (T)S));
 			size_t idx0 = static_cast<size_t>(_idx[0]); //grab each index from indpendent delay times
 			size_t idx1 = static_cast<size_t>(_idx[1]);
 			size_t idx2 = static_cast<size_t>(_idx[2]);
@@ -338,7 +594,7 @@ namespace Filter {
 
 			U lns = U{ BA::Buf[idx0][0], BA::Buf[idx1][1], BA::Buf[idx2][2], BA::Buf[idx3][3] };
 			DC::blok[DC::blkhd] = lns;
-			U delsm = lns;// cubicLerp(DC::blok, (DC::blkhd), 0.5, 8);
+			U delsm = cubicLerp(DC::blok, (DC::blkhd), DC::Freq, 8);
 			U out = (DC::Dry) + (DC::Inverting * (delsm * DC::FeedGain));
 			BA::rh.store(BA::rh + 1);
 			DC::blkhd.store((DC::blkhd + 1) & 7);
@@ -349,8 +605,8 @@ namespace Filter {
 	template <typename T = float, size_t S = 2048>
 	struct FFComb : FFPuller<T, S> {
 		using FP = FFPuller<T, S>;
-		using DC = DelayCombBase<U, S>;
-		using BA = BaseDoubleRing<U, S>;
+		using DC = DelayCombBase<T, S>;
+		using BA = BaseDoubleRing<T, S>;
 		FFComb() {}
 		~FFComb() {}
 		void setPars(T freq, T FF, float sr, LydD::Frequency_Types freqtype = LydD::Frequency_Types::SAMPLES, bool neg = false) {

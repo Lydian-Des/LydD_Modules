@@ -5,42 +5,57 @@
 #define PANEL "Dadras_panel.svg"
 #define HP 16
 
+#define MAX_LINE 512
 using namespace LydD;
 using namespace LydD::Matrix;
 static const int maxPolyphony = 1;
 
 
-
+template<size_t MAX = 1024>
 class Lines {
 private:
     //each float_4 of each vect is a point: x, y, z, w
-    std::vector<rack::simd::float_4> Spawnline;
-    std::vector<rack::simd::float_4> Momline;
-    std::vector<rack::simd::float_4> Dadline;
+    
+    rack::simd::float_4 Spawnline[MAX * 2];
+    rack::simd::float_4 Momline[MAX * 2];
+    rack::simd::float_4 Dadline[MAX * 2];
+    size_t write = 0;
+    size_t read = 0;
 public:
-    void build(rack::simd::float_4 Spawnpush, rack::simd::float_4 Mompush, rack::simd::float_4 Dadpush){
-        Spawnline.push_back(Spawnpush);
-        Momline.push_back(Mompush);
-        Dadline.push_back(Dadpush);
-        if (Spawnline.size() > 1000) {
-            Spawnline.erase(Spawnline.begin());
-            Momline.erase(Momline.begin());
-            Dadline.erase(Dadline.begin());
-        }
+    Lines() {
+        this->empty();
+    }
+    size_t getHead() {
+        return this->write;
+    }
+    size_t getRead() {
+        return this->read;
     }
     void empty() {
-        Spawnline.clear();
-        Momline.clear();
-        Dadline.clear();
+        std::memset(Spawnline, 0, sizeof(rack::simd::float_4) * MAX * 2);
+        std::memset(Momline, 0, sizeof(rack::simd::float_4) * MAX * 2);
+        std::memset(Dadline, 0, sizeof(rack::simd::float_4) * MAX * 2);
+        write = 0;
+        read = 0;
     }
-    void peekSpawn(std::vector<rack::simd::float_4>* lineask) {
-        *lineask = Spawnline;
+    void build(rack::simd::float_4 Spawnpush, rack::simd::float_4 Mompush, rack::simd::float_4 Dadpush) {
+        Spawnline[write] = Spawnpush;
+        Momline[write] = Mompush;
+        Dadline[write] = Dadpush;
+        Spawnline[write + MAX] = Spawnpush;
+        Momline[write + MAX] = Mompush;
+        Dadline[write + MAX] = Dadpush;
+        ++write;
+        write &= (MAX - 1);
+
     }
-    void peekMom(std::vector<rack::simd::float_4>* lineask) {
-        *lineask = Momline;
-    }
-    void peekDad(std::vector<rack::simd::float_4>* lineask) {
-        *lineask = Dadline;
+
+    void peekAll(rack::simd::float_4* linespawn, rack::simd::float_4* linemom, rack::simd::float_4* linedad) {
+        std::memcpy(linespawn, &Spawnline[write], sizeof(rack::simd::float_4) * MAX);
+        std::memcpy(linemom, &Momline[write], sizeof(rack::simd::float_4) * MAX);
+        std::memcpy(linedad, &Dadline[write], sizeof(rack::simd::float_4) * MAX);
+        ++read;
+        read &= (MAX - 1);
     }
 
 };
@@ -69,7 +84,7 @@ struct MomDadEq {
 struct DadrasModule : Module
 {
     MomDadEq Paths;
-    Lines* lines;
+    Lines<MAX_LINE>* lines;
 
 
     enum ParamIds {
@@ -145,7 +160,7 @@ struct DadrasModule : Module
         configParam(RESET_BUTTON_PARAM, 0.f, 1.f, 0.f, "Reset");
         configParam(AXIS_SWITCH_PARAM, 0.f, 2.f, 0.f, "Axis");
         configParam(WTYPE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Wander");
-        configParam(EDIT_BUTTON_PARAM, 0.f, 1.f, 0.f, "EDIT - conditions");
+        configParam(EDIT_BUTTON_PARAM, 0.f, 1.f, 0.f, "EDIT - constants");
 
         configInput(SPEED_INPUT, "Speed");
         configInput(SPREAD_INPUT, "Separation");
@@ -173,7 +188,7 @@ struct DadrasModule : Module
         configOutput(R_Z_OUTPUT, "Dad-Z");
         configOutput(R_W_OUTPUT, "Dad-W");
 
-        lines = new(Lines);
+        lines = new(Lines<MAX_LINE>);
 
 
     #include "Theme/setDefaultInit.h"
@@ -189,12 +204,12 @@ struct DadrasModule : Module
     bool dirty = false;
     float bounds = 120;
     float runSpeed = 20.f;
-    float synchro = false;
-    float syn = false;
-    float reSet = false;
-    float reReset = false;
-    float WSet = false;
-    float WReset = false;
+    bool synchro = false;
+    bool syn = false;
+    bool reSet = false;
+    bool reReset = false;
+    bool WSet = false;
+    bool WReset = false;
     //mostly stable 4 scroll starting positions
     float dt = 900;
     float a = 7.6;
@@ -206,11 +221,14 @@ struct DadrasModule : Module
     float startZ = -6;
     float startW = -1;
 
-    float editMode = false;
-    float editreset = false;
+    //edit start positions
+    bool editMode = false;
+    bool editreset = false;
+    rack::dsp::BooleanTrigger _modeSwitch;
 
-
+    //initialize with base values
     rack::simd::float_4 Start{startX, startY, startZ, startW};
+    rack::simd::float_4 Spread{ 0.f };
     rack::simd::float_4 CoordC = Start;
     rack::simd::float_4 CoordL = Start;
     rack::simd::float_4 CoordR = Start;
@@ -224,15 +242,11 @@ struct DadrasModule : Module
     int axis = 0;
     bool axbut = false;
     
-    rack::simd::float_4 Spread{ 0.f };
-
     float phaseShift = 0.f;
     float dadsInf = 0.f;
     float momsInf = 0.f;
   
-   
-
-
+  
     void process(const ProcessArgs& args) override {     
         if (loopCounter % 32 == 0) {
             checkInputs(args);
@@ -242,10 +256,16 @@ struct DadrasModule : Module
             loopCounter = 0;
         }
         ++loopCounter;
-        generateOutput(args);
+        
 
-        incrementPhase(Pitch, args.sampleRate, &Phase, rack::simd::float_4(_2_PI));
-
+        //each phase ticks one time step per cycle
+        if (!editMode) {
+            generateOutput(args);
+            incrementPhase(Pitch, args.sampleRate, &Phase, rack::simd::float_4(_2_PI));          
+        }
+        else {
+            setEditStart(args);
+        }
     }
 
    
@@ -278,6 +298,9 @@ struct DadrasModule : Module
         lights[WTYPE_LIGHT + 1].setBrightness(WSet);
         if (WSet) {
             paramQuantities[WTYPE_BUTTON_PARAM]->name = "Scratch";
+        }
+        else {
+            paramQuantities[WTYPE_BUTTON_PARAM]->name = "Wander";
         }
 
         float A = params[A_PARAM].value;
@@ -312,9 +335,9 @@ struct DadrasModule : Module
 
         float parSpread = params[SPREAD_PARAM].value;
         float inSpread = (inputs[SPREAD_INPUT].isConnected()) ? inputs[SPREAD_INPUT].getVoltage(0) : 0.f;
-        float spreadX = (parSpread + inSpread) / 500;
-        float spreadY = (parSpread + inSpread) / 200;
-        float spreadZ = (parSpread - inSpread) / 400;        
+        float spreadX = (parSpread + inSpread) / 500.f;
+        float spreadY = (parSpread + inSpread) / 200.f;
+        float spreadZ = (parSpread - inSpread) / 400.f;        
         Spread = rack::simd::float_4{ spreadX, spreadY, spreadZ, 0.f };
 
         float parphaseShift = params[TIME_PHASE_PARAM].value;
@@ -327,11 +350,26 @@ struct DadrasModule : Module
         momsInf = rack::math::clamp(params[INFLUENCE_MOM_PARAM].value + inmom, 0.f, 1.f);
         
         latchButton(params[EDIT_BUTTON_PARAM].value, &editMode, &editreset);
+        if (_modeSwitch.process(editMode)) {
+            resetspace();
+        }
+        if (editMode) {
+            paramQuantities[A_PARAM]->name = "Edit - X";
+            paramQuantities[B_PARAM]->name = "Edit - Y";
+            paramQuantities[G_PARAM]->name = "Edit - Z";
+            paramQuantities[O_PARAM]->name = "Edit - W";
+        } 
+        else {
+            paramQuantities[A_PARAM]->name = "Force";
+            paramQuantities[B_PARAM]->name = "Split";
+            paramQuantities[G_PARAM]->name = "Dwell";
+            paramQuantities[O_PARAM]->name = "Throw";
+        }
     }
     void resetspace() {
         CoordC = Start;
-        CoordL = Start;
-        CoordR = Start;
+        CoordL = Start + Spread;
+        CoordR = Start - Spread;
         lines->empty();
     }
     void generateOutput(const ProcessArgs& args) {   
@@ -358,78 +396,70 @@ struct DadrasModule : Module
                 CoordR = Start;
             }
         }
-        if (!editMode) {
-            rack::simd::float_4 CoordprevC = CoordC;
-            rack::simd::float_4 CoordprevL = CoordL + Spread;
-            rack::simd::float_4 CoordprevR = CoordR - Spread;
+        
+        //spread functions as continuous offset rather than initial conditions
+        rack::simd::float_4 CoordprevC = CoordC;
+        rack::simd::float_4 CoordprevL = CoordL + Spread;
+        rack::simd::float_4 CoordprevR = CoordR - Spread;
 
-            if (Phase[0] <= _PI) {
-                click1 = true;
-            }
-            if (Phase[1] <= _PI) {
-                click2 = true;
-            }
-            if (Phase[2] <= _PI) {
-                click3 = true;
-            }
-            if (Phase[0] > _PI && click1) {
-                lines->build(CoordC, CoordL, CoordR);
-                //pull toward mom or dad w/ influence
-                CoordprevC += incrementToward(CoordprevC, CoordL, 100) * momsInf;
-                CoordprevC += incrementToward(CoordprevC, CoordR, 100) * dadsInf;
-                CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
-
-                click1 = false;
-            }
-            if (Phase[1] > _PI && click2) {
-
-                CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
-
-                click2 = false;
-            }
-            if (Phase[2] > _PI && click3) {
-
-                CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
-
-
-                click3 = false;
-            }
-            float outputC[4] = { 0 };
-            float outputL[4] = { 0 };
-            float outputR[4] = { 0 };
-            for (int i = 0; i < 4; ++i) {
-                outputC[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
-                outputC[i] = rack::math::clamp(outputC[i], -8.f, 8.f);
-                outputL[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
-                outputL[i] = rack::math::clamp(outputL[i], -8.f, 8.f);
-                outputR[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
-                outputR[i] = rack::math::clamp(outputR[i], -8.f, 8.f);
-            }
-
-
-            outputs[C_X_OUTPUT].setVoltage(outputC[0], 0);
-            outputs[C_Y_OUTPUT].setVoltage(outputC[1], 0);
-            outputs[C_Z_OUTPUT].setVoltage(outputC[2], 0);
-            outputs[C_W_OUTPUT].setVoltage(outputC[3], 0);
-            outputs[L_X_OUTPUT].setVoltage(outputL[0], 0);
-            outputs[L_Y_OUTPUT].setVoltage(outputL[1], 0);
-            outputs[L_Z_OUTPUT].setVoltage(outputL[2], 0);
-            outputs[L_W_OUTPUT].setVoltage(outputL[3], 0);
-            outputs[R_X_OUTPUT].setVoltage(outputR[0], 0);
-            outputs[R_Y_OUTPUT].setVoltage(outputR[1], 0);
-            outputs[R_Z_OUTPUT].setVoltage(outputR[2], 0);
-            outputs[R_W_OUTPUT].setVoltage(outputR[3], 0);
+        if (Phase[0] <= _PI) {
+            click1 = true;
         }
-        else {
-            Start[0] = 11 + params[A_PARAM].value;
-            Start[1] = 1 + params[B_PARAM].value;
-            Start[2] = -10 + params[G_PARAM].value;
-            Start[3] = -1 + params[O_PARAM].value; 
-            if (loopCounter % 16 == 0) {
-                lines->build(Start  *50, Start * 50, Start * 50);
-            }
-            resetspace();
+        if (Phase[1] <= _PI) {
+            click2 = true;
         }
+        if (Phase[2] <= _PI) {
+            click3 = true;
+        }
+        if (Phase[0] > _PI && click1) {
+            lines->build(CoordC, CoordL, CoordR);
+            //pull toward mom or dad w/ influence
+            CoordprevC += incrementToward(CoordprevC, CoordL, 100) * momsInf;
+            CoordprevC += incrementToward(CoordprevC, CoordR, 100) * dadsInf;
+            CoordC = Paths.MOMDAD(a, b, g, o, dt, CoordprevC, WSet);
+            click1 = false;
+        }
+        if (Phase[1] > _PI && click2) {
+            CoordL = Paths.MOMDAD(a, b, g, o, dtL, CoordprevL, WSet);
+            click2 = false;
+        }
+        if (Phase[2] > _PI && click3) {
+            CoordR = Paths.MOMDAD(a, b, g, o, dtR, CoordprevR, WSet);
+            click3 = false;
+        }
+        float outputC[4] = { 0 };
+        float outputL[4] = { 0 };
+        float outputR[4] = { 0 };
+        for (int i = 0; i < 4; ++i) {
+            outputC[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordC[i]);
+            outputC[i] = rack::math::clamp(outputC[i], -8.f, 8.f);
+            outputL[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordL[i]);
+            outputL[i] = rack::math::clamp(outputL[i], -8.f, 8.f);
+            outputR[i] = lerp(-8.f, 8.f, -bounds, bounds, CoordR[i]);
+            outputR[i] = rack::math::clamp(outputR[i], -8.f, 8.f);
+        }
+
+
+        outputs[C_X_OUTPUT].setVoltage(outputC[0], 0);
+        outputs[C_Y_OUTPUT].setVoltage(outputC[1], 0);
+        outputs[C_Z_OUTPUT].setVoltage(outputC[2], 0);
+        outputs[C_W_OUTPUT].setVoltage(outputC[3], 0);
+        outputs[L_X_OUTPUT].setVoltage(outputL[0], 0);
+        outputs[L_Y_OUTPUT].setVoltage(outputL[1], 0);
+        outputs[L_Z_OUTPUT].setVoltage(outputL[2], 0);
+        outputs[L_W_OUTPUT].setVoltage(outputL[3], 0);
+        outputs[R_X_OUTPUT].setVoltage(outputR[0], 0);
+        outputs[R_Y_OUTPUT].setVoltage(outputR[1], 0);
+        outputs[R_Z_OUTPUT].setVoltage(outputR[2], 0);
+        outputs[R_W_OUTPUT].setVoltage(outputR[3], 0);
+        
+
+    }
+    void setEditStart(const ProcessArgs& args) {
+        Start[0] = startX + params[A_PARAM].value;
+        Start[1] = startY + params[B_PARAM].value;
+        Start[2] = startZ + params[G_PARAM].value;
+        Start[3] = startW + params[O_PARAM].value;
     }
 
     json_t* dataToJson() override {
@@ -490,272 +520,328 @@ struct DadWidget : Widget{
         box.pos = topLeft;
 
     }
-    rack::simd::float_4 spinX = 60 ;
-    rack::simd::float_4 spinY = 30 ;
-    rack::simd::float_4 spinZ = 20 ;
-    rack::simd::float_4 spinW = 0;
-    rack::simd::float_4 circle = 360;
+
+    float drawboxX;
+    float drawboxY;
+    float bound;
+    bool editMode;
+
+    rack::simd::float_4 spinX{ 60 };
+    rack::simd::float_4 spinY{ 30 };
+    rack::simd::float_4 spinZ{ 20 };
+    rack::simd::float_4 spinW{ 0 };
+    rack::simd::float_4 circle{ 360 };
+    std::vector<rack::simd::float_4> rotationYZ;
+    std::vector<rack::simd::float_4> rotationXZ;
+    std::vector<rack::simd::float_4> rotationXY;
+    std::vector<rack::simd::float_4> rotationZW;
+    std::vector<rack::simd::float_4> rotationYW;
+    std::vector<rack::simd::float_4> Wstyle;
+    int depthDim;
     bool addSpin = false;
     int frames = 0;
+    rack::simd::float_4 Zero{ 0 };
+
+    Vec DrawSpawn[MAX_LINE];
+    Vec DrawMom[MAX_LINE];
+    Vec DrawDad[MAX_LINE];
+    float Opacity[MAX_LINE];
     
+    void drawRoom(const DrawArgs& args, float boxX, float boxY) {
+        //drawing a little room for the snakes to live in
+        nvgStrokeWidth(args.vg, 1.2);
+        nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
+        nvgFillColor(args.vg, nvgRGBAf(0.68, 0.57, 0.91, 0.21));
+        nvgBeginPath(args.vg);
+        nvgMoveTo(args.vg, 0, 0);
+        nvgLineTo(args.vg, boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, boxX / 5, 4 * boxY / 5);
+        nvgLineTo(args.vg, 0, boxY);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+        nvgBeginPath(args.vg);
+        nvgMoveTo(args.vg, 0, 0);
+        nvgLineTo(args.vg, boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, 4 * boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, boxX, 0);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+        nvgBeginPath(args.vg);
+        nvgMoveTo(args.vg, boxX, 0);
+        nvgLineTo(args.vg, 4 * boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, 4 * boxX / 5, 4 * boxY / 5);
+        nvgLineTo(args.vg, boxX, boxY);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+        nvgBeginPath(args.vg);
+        nvgMoveTo(args.vg, boxX, boxY);
+        nvgLineTo(args.vg, 4 * boxX / 5, 4 * boxY / 5);
+        nvgLineTo(args.vg, boxX / 5, 4 * boxY / 5);
+        nvgLineTo(args.vg, 0, boxY);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+        nvgBeginPath(args.vg);
+        nvgFillColor(args.vg, nvgRGBAf(0.62, 0.52, 0.75, 0.21));
+        nvgMoveTo(args.vg, boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, 4 * boxX / 5, boxY / 5);
+        nvgLineTo(args.vg, 4 * boxX / 5, 4 * boxY / 5);
+        nvgLineTo(args.vg, boxX / 5, 4 * boxY / 5);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+
+        nvgBeginPath(args.vg);
+        nvgStrokeWidth(args.vg, 1.2);
+        nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
+        nvgFillColor(args.vg, nvgRGBAf(0.53, 0.81, 0.92, 0.16));
+        nvgMoveTo(args.vg, 1.7 * boxX / 5, 1.7 * boxY / 5);
+        nvgLineTo(args.vg, 1.7 * boxX / 5, 3 * boxY / 5);
+        nvgLineTo(args.vg, 3.3 * boxX / 5, 3 * boxY / 5);
+        nvgLineTo(args.vg, 3.3 * boxX / 5, 1.7 * boxY / 5);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+        nvgBeginPath(args.vg);
+        nvgStrokeWidth(args.vg, 1.2);
+        nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
+        nvgFillColor(args.vg, nvgRGBAf(0.53, 0.81, 0.92, 0.16));
+        nvgMoveTo(args.vg, 4.7 * boxX / 5, 1.3 * boxY / 5);
+        nvgLineTo(args.vg, 4.7 * boxX / 5, 3.25 * boxY / 5);
+        nvgLineTo(args.vg, 4.3 * boxX / 5, 3 * boxY / 5);
+        nvgLineTo(args.vg, 4.3 * boxX / 5, 1.7 * boxY / 5);
+        nvgClosePath(args.vg);
+        nvgStroke(args.vg);
+        nvgFill(args.vg);
+
+    }
+
+    void drawPolyLine(const DrawArgs& args, Vec* line, float* opacity, float color[3], int size) {
+        nvgBeginPath(args.vg);
+        
+        nvgStrokeWidth(args.vg, opacity[0] + 0.2f);
+        nvgStrokeColor(args.vg, nvgRGBAf(color[0], color[1], color[2], opacity[0]));
+        nvgMoveTo(args.vg, line[0].x, line[0].y);
+        for (int i = 1; i < size; ++i) {                      
+            nvgLineTo(args.vg, line[i].x, line[i].y);
+        }
+        nvgStroke(args.vg);
+        nvgClosePath(args.vg);
+    }
+
+    void step() override {
+        editMode = Momeni->editMode;
+        drawboxX = box.size.x;
+        drawboxY = box.size.y;
+        bound = Momeni->bounds;
+
+        rotationYZ = RotationYZ(spinX);
+        rotationXZ = RotationXZ(spinY);
+        rotationXY = RotationXY(spinZ);
+        rotationZW = RotationZW(spinW);
+        rotationYW = RotationYW(spinW);
+        Wstyle = rotationXZ;
+
+        if (!editMode) {
+            rack::simd::float_4 Spawnp[MAX_LINE]{ 0 };
+            rack::simd::float_4 Momp[MAX_LINE]{ 0 };
+            rack::simd::float_4 Dadp[MAX_LINE]{ 0 };
+            if (Momeni->lines) Momeni->lines->peekAll(Spawnp, Momp, Dadp);
+
+            depthDim = 3;
+
+            if (Momeni->axis == 1) {
+                Wstyle = rotationYW;
+                depthDim = 1;
+            }
+            if (Momeni->axis == 2) {
+                Wstyle = rotationXY;
+                depthDim = 2;
+            }
+
+            
+            for (int s = 0; (s < MAX_LINE); ++s) {
+
+                //just a whole fuckton of matrix multiplication to draw these snake lines. really?
+                std::vector<rack::simd::float_4> LinesVec{ Spawnp[s], Momp[s], Dadp[s], Zero };
+                std::vector<rack::simd::float_4> LinesRotate = MatrixMult(rotationYZ, LinesVec);
+                // LinesRotate = MatrixMult(rotationXZ, LinesRotate);
+                LinesRotate = MatrixMult(Wstyle, LinesRotate);
+
+                float distance = 1.55;
+                float distconv = lerp(0.f, 1.f, -bound + 50.f, bound - 50.f, -Spawnp[s][depthDim]);
+                float Q = 1.f / (distance - distconv);
+                std::vector<rack::simd::float_4> projection = Projection(Q);
+
+                std::vector<rack::simd::float_4> LinesProject = MatrixMult(projection, LinesRotate);
+
+                rack::simd::float_4 disp1 = LinesProject[0];
+                rack::simd::float_4 disp2 = LinesProject[1];
+                rack::simd::float_4 disp3 = LinesProject[2];
+
+                //change which pair gets displayed as the X and Y coordinates
+                float line1screenX = disp1[0];
+                float line1screenY = disp1[1];
+
+                float line2screenX = disp2[0];
+                float line2screenY = disp2[1];
+
+                float line3screenX = disp3[0];
+                float line3screenY = disp3[1];
+
+                if (Momeni->axis == 1) {
+                    line1screenY = disp1[2];
+                    line2screenY = disp2[2];
+                    line3screenY = disp3[2];
+
+                }
+                if (Momeni->axis == 2) {
+                    line1screenX = disp1[1];
+                    line2screenX = disp2[1];
+                    line3screenX = disp3[1];
+                    line1screenY = disp1[3];
+                    line2screenY = disp2[3];
+                    line3screenY = disp3[3];
+                }
+                //flip Y for inverse screen coordinates
+                DrawSpawn[s].x = lerp(0.f, drawboxX, -bound, bound, line1screenX);
+                DrawSpawn[s].y = lerp(0.f, drawboxY, -bound, bound, -line1screenY);
+
+                DrawMom[s].x = lerp(0.f, drawboxX, -bound, bound, line2screenX);
+                DrawMom[s].y = lerp(0.f, drawboxY, -bound, bound, -line2screenY);
+
+                DrawDad[s].x = lerp(0.f, drawboxX, -bound, bound, line3screenX);
+                DrawDad[s].y = lerp(0.f, drawboxY, -bound, bound, -line3screenY);
+
+                Opacity[s] = distconv + 0.1;
+            }
+        }
+        Widget::step();
+    }
+
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer == 1) {
-            float drawboxX = box.size.x;
-            float drawboxY = box.size.y;
-            float bound = Momeni->bounds;
+
             
             
                    
             nvgScissor(args.vg, 0, 0, drawboxX, drawboxY);
 
-            //drawing a little room for the snakes to live in
-            nvgStrokeWidth(args.vg, 1.2);
-            nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
-            nvgFillColor(args.vg, nvgRGBAf(0.68, 0.57, 0.91, 0.21));
-            nvgBeginPath(args.vg);            
-            nvgMoveTo(args.vg, 0, 0);
-            nvgLineTo(args.vg, drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, drawboxX / 5, 4 * drawboxY / 5);
-            nvgLineTo(args.vg, 0, drawboxY);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-            nvgBeginPath(args.vg);
-            nvgMoveTo(args.vg, 0, 0);
-            nvgLineTo(args.vg, drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, drawboxX, 0);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-            nvgBeginPath(args.vg);
-            nvgMoveTo(args.vg, drawboxX, 0);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, 4 * drawboxY / 5);
-            nvgLineTo(args.vg, drawboxX, drawboxY);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-            nvgBeginPath(args.vg);
-            nvgMoveTo(args.vg, drawboxX, drawboxY);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, 4 *  drawboxY / 5);
-            nvgLineTo(args.vg, drawboxX / 5, 4 * drawboxY / 5);
-            nvgLineTo(args.vg, 0, drawboxY);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-            nvgBeginPath(args.vg);
-            nvgFillColor(args.vg, nvgRGBAf(0.62, 0.52, 0.75, 0.21));
-            nvgMoveTo(args.vg, drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, drawboxY / 5);
-            nvgLineTo(args.vg, 4 * drawboxX / 5, 4 * drawboxY / 5);
-            nvgLineTo(args.vg, drawboxX / 5, 4 * drawboxY / 5);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-
-            nvgBeginPath(args.vg);
-            nvgStrokeWidth(args.vg, 1.2);
-            nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
-            nvgFillColor(args.vg, nvgRGBAf(0.53, 0.81, 0.92, 0.16));
-            nvgMoveTo(args.vg, 1.7 * drawboxX / 5, 1.7 * drawboxY / 5);
-            nvgLineTo(args.vg, 1.7 * drawboxX / 5, 3 * drawboxY / 5);
-            nvgLineTo(args.vg, 3.3 * drawboxX / 5, 3 * drawboxY / 5);
-            nvgLineTo(args.vg, 3.3 * drawboxX / 5, 1.7 * drawboxY / 5);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-
-            nvgBeginPath(args.vg);
-            nvgStrokeWidth(args.vg, 1.2);
-            nvgStrokeColor(args.vg, nvgRGBAf(0.4, 0.4, 0.2, 0.4));
-            nvgFillColor(args.vg, nvgRGBAf(0.53, 0.81, 0.92, 0.16));
-            nvgMoveTo(args.vg, 4.7 * drawboxX / 5, 1.3 * drawboxY / 5);
-            nvgLineTo(args.vg, 4.7 * drawboxX / 5, 3.25 * drawboxY / 5);
-            nvgLineTo(args.vg, 4.3 * drawboxX / 5, 3 * drawboxY / 5);
-            nvgLineTo(args.vg, 4.3 * drawboxX / 5, 1.7 * drawboxY / 5);
-            nvgClosePath(args.vg);
-            nvgStroke(args.vg);
-            nvgFill(args.vg);
-            
-
+           // drawRoom(args,drawboxX, drawboxY);
+  
             if (Momeni->axis == 2) {
                 addSpin = true;
             }
-           //very slowly spin at different speeds along each axis
+            //very slowly spin at different speeds along each axis
             if (frames % 4 == 0) {
-                    spinX +=  0.0025f;                           
-                    spinY -= (addSpin) ? 0.005f : 0.0025f;
-                    spinZ +=  0.0055f;                
-                    spinW -= (addSpin) ? 0.0065f : 0.015f;
-                    if (spinX[0] > 360) spinX = 0.f;
-                    if (spinY[0] > 360) spinY = 0.f;
-                    if (spinZ[0] > 360) spinZ = 0.f;
-                    if (spinW[0] > 360) spinW = 0.f;
+                spinX += 0.015f;
+                spinY -= (addSpin) ? 0.005f : 0.015f;
+                spinZ += 0.015f;
+                spinW -= (addSpin) ? 0.0065f : 0.015f;
+                spinX = wrapFree(spinX, rack::simd::float_4(0.f), rack::simd::float_4(360.f));
+                spinY = wrapFree(spinY, rack::simd::float_4(0.f), rack::simd::float_4(360.f));
+                spinZ = wrapFree(spinZ, rack::simd::float_4(0.f), rack::simd::float_4(360.f));
+                spinW = wrapFree(spinW, rack::simd::float_4(0.f), rack::simd::float_4(360.f));
             }
             ++frames;
             frames %= 64;
-  
-           
-            std::vector<rack::simd::float_4> Spawnp;
-            Momeni->lines->peekSpawn(&Spawnp);
-            std::vector<rack::simd::float_4> Momp;
-            Momeni->lines->peekMom(&Momp);
-            std::vector<rack::simd::float_4> Dadp;
-            Momeni->lines->peekDad(&Dadp);
-            //all three vecs will always be the same size, so only have to check with one.
-            for (int s = 0; s < (int)Spawnp.size(); ++s) {
-                //just a whole fuckton of matrix multiplication to draw these snake lines. really?
-                rack::simd::float_4 Zero = 0;
-                std::vector<rack::simd::float_4> rotationYZ = RotationYZ(spinX);
-                std::vector<rack::simd::float_4> rotationXZ = RotationXZ(spinY);
-                std::vector<rack::simd::float_4> rotationXY = RotationXY(spinZ);
-                std::vector<rack::simd::float_4> rotationZW = RotationZW(spinW);
-                std::vector<rack::simd::float_4> rotationYW = RotationYW(spinW);
 
-                std::vector<rack::simd::float_4> Wstyle = rotationZW;
-                int depthDim = 2;                
-                if (Momeni->axis == 1) {
-                    Wstyle = rotationYW;
-                    depthDim = 1;
-                }
-                if (Momeni->axis == 2) {
-                    Wstyle = rotationXY;
-                    depthDim = 0;
-                }
-                //do everything in duplicate to get 2 points to draw a line with
-                std::vector<rack::simd::float_4> LinesVec{  Spawnp[s], Momp[s], Dadp[s], Zero};
-                std::vector<rack::simd::float_4> LinesVecprev{ Spawnp[abs(s - 1)], Momp[abs(s - 1)], Dadp[abs(s - 1)], Zero};
 
-                std::vector<rack::simd::float_4> LinesRotate = MatrixMult(rotationYZ, LinesVec);
-                LinesRotate = MatrixMult(rotationXZ, LinesRotate);
-                LinesRotate = MatrixMult(Wstyle, LinesRotate);
+            
 
-                std::vector<rack::simd::float_4> LinesRotateprev = MatrixMult(rotationYZ, LinesVecprev);
-                LinesRotateprev = MatrixMult(rotationXZ, LinesRotateprev);
-                LinesRotateprev = MatrixMult(Wstyle, LinesRotateprev);
+            if (!editMode) {
 
+               
+                //colors for lines
+                float scol[3] = { 0.0, 0.9, 0.84 };
+                float mcol[3] = { 0.84, 0.9, 0.0 };
+                float dcol[3] = { 0.9, 0.0, 0.84 };
+                //forgo a couple niceties for less path calls and context switches
+                drawPolyLine(args, DrawSpawn, Opacity, scol, MAX_LINE);
+                drawPolyLine(args, DrawMom, Opacity, mcol, MAX_LINE);
+                drawPolyLine(args, DrawDad, Opacity, dcol, MAX_LINE);
+                    //draw little ellipses on the sneks heads
+ 
+                    nvgBeginPath(args.vg);
+                    nvgEllipse(args.vg, DrawSpawn[MAX_LINE - 1].x, DrawSpawn[MAX_LINE - 1].y, 4, 4);
+                    nvgStrokeWidth(args.vg, Opacity[MAX_LINE - 1] + 0.2);
+                    nvgStrokeColor(args.vg, nvgRGBAf(0.0, 0.9, 0.84, Opacity[MAX_LINE - 1]));
+                    nvgStroke(args.vg);
+
+                    nvgBeginPath(args.vg);
+                    nvgEllipse(args.vg, DrawMom[MAX_LINE - 1].x, DrawMom[MAX_LINE - 1].y, 2 + (abs(DrawMom[0].x - DrawMom[1].x) / 2), 2 + (abs(DrawMom[0].y - DrawMom[1].y) / 2));
+                    nvgStrokeWidth(args.vg, Opacity[MAX_LINE - 1] + 0.2);
+                    nvgStrokeColor(args.vg, nvgRGBAf(0.84, 0.9, 0.0, Opacity[MAX_LINE - 1]));
+                    nvgStroke(args.vg);
+
+                    nvgBeginPath(args.vg);
+                    nvgEllipse(args.vg, DrawDad[MAX_LINE - 1].x, DrawDad[MAX_LINE - 1].y, 2 + (abs(DrawDad[0].x - DrawDad[1].x) / 2), 2 + (abs(DrawDad[0].y - DrawDad[1].y) / 2));
+                    nvgStrokeWidth(args.vg, Opacity[MAX_LINE - 1] + 0.2);
+                    nvgStrokeColor(args.vg, nvgRGBAf(0.9, 0.0, 0.84, Opacity[MAX_LINE - 1]));
+                    nvgStroke(args.vg);
                     
-                float distance = 1.05;
-                float distconv = lerp(0.f, 1.f, -bound + 50.f, bound - 50.f, -Spawnp[s][depthDim]);
-                float distconvprev = lerp(0.f, 1.f, -bound + 50.f, bound - 50.f, -Spawnp[abs(s - 1)][depthDim]);
-                float Q = 1  / (distance - distconv);
-                std::vector<rack::simd::float_4> projection = Projection(Q);
-
-                float E = 1  / (distance - distconvprev);
-                std::vector<rack::simd::float_4> projectionprev = Projection(E);
-
-                std::vector<rack::simd::float_4> LinesProject = MatrixMult(projection, LinesRotate);
-                std::vector<rack::simd::float_4> LinesProjectprev = MatrixMult(projectionprev, LinesRotateprev);
-
-                rack::simd::float_4 disp1 = LinesProject[0];
-                rack::simd::float_4 disp2 = LinesProject[1];
-                rack::simd::float_4 disp3 = LinesProject[2];
-                rack::simd::float_4 disprev1 = LinesProjectprev[0];
-                rack::simd::float_4 disprev2 = LinesProjectprev[1];
-                rack::simd::float_4 disprev3 = LinesProjectprev[2];
-                //change which pair gets displayed as the X and Y coordinates
-                float line1screenX = disp1[0];
-                float line1screenY = disp1[1];
-                float line1screenXprev = disprev1[0];
-                float line1screenYprev = disprev1[1];
-                float line2screenX = disp2[0];
-                float line2screenY = disp2[1];
-                float line2screenXprev = disprev2[0];
-                float line2screenYprev = disprev2[1];
-                float line3screenX = disp3[0];
-                float line3screenY = disp3[1];
-                float line3screenXprev = disprev3[0];
-                float line3screenYprev = disprev3[1];
-                if (Momeni->axis == 1) {                    
-                    line1screenY = disp1[2];
-                    line2screenY = disp2[2];
-                    line3screenY = disp3[2];
-                    line1screenYprev = disprev1[2];
-                    line2screenYprev = disprev2[2];
-                    line3screenYprev = disprev3[2];                    
-                }
-                if (Momeni->axis == 2) {
-                    line1screenX = disp1[1];
-                    line1screenXprev = disprev1[1];
-                    line2screenX = disp2[1];
-                    line2screenXprev = disprev2[1];
-                    line3screenX = disp3[1];
-                    line3screenXprev = disprev3[1];
-                    line1screenY = disp1[3];
-                    line1screenYprev = disprev1[3];
-                    line2screenY = disp2[3];
-                    line2screenYprev = disprev2[3];
-                    line3screenY = disp3[3];
-                    line3screenYprev = disprev3[3];
-                }
-                float rotscreenX1 = lerp(0.f, drawboxX, -bound, bound, line1screenX);
-                float rotscreenY1 = lerp(0.f, drawboxY, -bound, bound, -line1screenY);
-                float rotscreenX1prev = lerp(0.f, drawboxX, -bound, bound, line1screenXprev);
-                float rotscreenY1prev = lerp(0.f, drawboxY, -bound, bound, -line1screenYprev);
-
-                float rotscreenX2 = lerp(0.f, drawboxX, -bound, bound, line2screenX);
-                float rotscreenY2 = lerp(0.f, drawboxY, -bound, bound, -line2screenY);
-                float rotscreenX2prev = lerp(0.f, drawboxX, -bound, bound, line2screenXprev);
-                float rotscreenY2prev = lerp(0.f, drawboxY, -bound, bound, -line2screenYprev);
-
-                float rotscreenX3 = lerp(0.f, drawboxX, -bound, bound, line3screenX);
-                float rotscreenY3 = lerp(0.f, drawboxY, -bound, bound, -line3screenY);   
-                float rotscreenX3prev = lerp(0.f, drawboxX, -bound, bound, line3screenXprev);
-                float rotscreenY3prev = lerp(0.f, drawboxY, -bound, bound, -line3screenYprev);
-                
-                
-                
-                float OP = distconv + 0.1 ;
-
-                nvgBeginPath(args.vg);              
-                nvgMoveTo(args.vg, rotscreenX1prev, rotscreenY1prev);
-                nvgLineTo(args.vg, rotscreenX1, rotscreenY1);
-                nvgStrokeWidth(args.vg, OP + 0.2 );
-                nvgStrokeColor(args.vg, nvgRGBAf(0.0, 0.9, 1.0, OP));
-                nvgStroke(args.vg);
-
-                nvgBeginPath(args.vg);
-                nvgMoveTo(args.vg, rotscreenX2prev, rotscreenY2prev);
-                nvgLineTo(args.vg, rotscreenX2, rotscreenY2);
-                nvgStrokeWidth(args.vg, OP + 0.2);
-                nvgStrokeColor(args.vg, nvgRGBAf(0.8, 0.9, 0.0, OP));
-                nvgStroke(args.vg);
-
-                nvgBeginPath(args.vg);
-                nvgMoveTo(args.vg, rotscreenX3prev, rotscreenY3prev);
-                nvgLineTo(args.vg, rotscreenX3, rotscreenY3);
-                nvgStrokeWidth(args.vg, OP + 0.2);
-                nvgStrokeColor(args.vg, nvgRGBAf(0.8, 0.0, 0.9, OP));
-                nvgStroke(args.vg);
-                //draw little ellipses on the sneks heads
-                if (s == (int)Spawnp.size() - 1) {
-                    nvgBeginPath(args.vg);
-                    nvgEllipse(args.vg, rotscreenX1, rotscreenY1, 2 + (abs(rotscreenX1 - rotscreenX1prev) / 2), 2 + (abs(rotscreenY1 - rotscreenY1prev) / 2));
-                    nvgStrokeWidth(args.vg, OP + 0.2);
-                    nvgStrokeColor(args.vg, nvgRGBAf(0.0, 0.9, 0.84, OP));
-                    nvgStroke(args.vg);
-
-                    nvgBeginPath(args.vg);
-                    nvgEllipse(args.vg, rotscreenX2, rotscreenY2, 2 + (abs(rotscreenX2 - rotscreenX2prev) / 2), 2 + (abs(rotscreenY2 - rotscreenY2prev) / 2));
-                    nvgStrokeWidth(args.vg, OP + 0.2);
-                    nvgStrokeColor(args.vg, nvgRGBAf(0.84, 0.9, 0.0, OP));
-                    nvgStroke(args.vg);
-
-                    nvgBeginPath(args.vg);
-                    nvgEllipse(args.vg, rotscreenX3, rotscreenY3, 2 + (abs(rotscreenX3 - rotscreenX3prev) / 2), 2 + (abs(rotscreenY3 - rotscreenY3prev) / 2));
-                    nvgStrokeWidth(args.vg, OP + 0.2);
-                    nvgStrokeColor(args.vg, nvgRGBAf(0.9, 0.0, 0.84, OP));
-                    nvgStroke(args.vg);
-                }
+                    
                 
             }
+            else {
+                rack::simd::float_4 kidCoord = Momeni->Start;
+                rack::simd::float_4 momCoord = Momeni->Start + Momeni->Spread * 300.f;
+                rack::simd::float_4 dadCoord = Momeni->Start - Momeni->Spread * 300.f;
 
+                std::vector<rack::simd::float_4> dotsVec{ kidCoord, momCoord, dadCoord, Zero };
+
+                std::vector<rack::simd::float_4> dotsRotate = MatrixMult(rotationYZ, dotsVec);
+                dotsRotate = MatrixMult(rotationXZ, dotsRotate);
+                dotsRotate = MatrixMult(Wstyle, dotsRotate);
+                float distance = 1.05;
+                float distconv = lerp(0.f, 1.f, -60.f, 60.f, -kidCoord[depthDim]);
+                float Q = 1.f / (distance - distconv);
+                std::vector<rack::simd::float_4> projection = Projection(Q);
+                std::vector<rack::simd::float_4> dotsProject = MatrixMult(projection, dotsRotate);
+
+                rack::simd::float_4 kidproj = lerp(Zero, rack::simd::float_4(drawboxY),
+                    rack::simd::float_4(-60), rack::simd::float_4(60), dotsProject[0]);
+                rack::simd::float_4 momproj = lerp(Zero, rack::simd::float_4(drawboxY),
+                    rack::simd::float_4(-60), rack::simd::float_4(60), dotsProject[1]);
+                rack::simd::float_4 dadproj = lerp(Zero, rack::simd::float_4(drawboxY),
+                    rack::simd::float_4(-60), rack::simd::float_4(60), dotsProject[2]);
+
+                nvgBeginPath(args.vg);
+                nvgEllipse(args.vg, kidproj[0], kidproj[1], 4.f + Q, 4.f + Q);
+                nvgStrokeWidth(args.vg, 0.4f);
+                nvgStrokeColor(args.vg, nvgRGBAf(0.0f, 0.9f, 0.84f, 1.f));
+                nvgStroke(args.vg);
+
+                nvgBeginPath(args.vg);
+                nvgEllipse(args.vg, momproj[0], momproj[1], 4.f + Q, 4.f + Q);
+                nvgStrokeWidth(args.vg, 0.4f);
+                nvgStrokeColor(args.vg, nvgRGBAf(0.84f, 0.9f, 0.0f, 1.f));
+                nvgStroke(args.vg);
+
+                nvgBeginPath(args.vg);
+                nvgEllipse(args.vg, dadproj[0], dadproj[1], 4.f + Q, 4.f + Q);
+                nvgStrokeWidth(args.vg, 0.4f);
+                nvgStrokeColor(args.vg, nvgRGBAf(0.9f, 0.0f, 0.84f, 1.f));
+                nvgStroke(args.vg);
+
+                //draw the edit triangle
+                nvgBeginPath(args.vg);
+                nvgFillColor(args.vg, nvgRGBAf(0.6f, 0.6f, 0.1f, 1.f));
+                nvgMoveTo(args.vg, 5.f, 115.f);
+                nvgLineTo(args.vg, 20.f, 115.f);
+                nvgLineTo(args.vg, 12.5f, 102.f);
+                nvgClosePath(args.vg);
+                nvgFill(args.vg);
+            }
         }
         Widget::drawLayer(args, layer);
     }

@@ -61,6 +61,25 @@ namespace LydD {
         *y = r * sinApproxNick(t);
     }
 
+    //6th order approx of e^x
+    //follows negative portion of sigmoid great, falls off above about +1.5
+    //since sigmoid uses e^(-x) it follows the inverse is true for positive powered calculations
+    template<typename T = float>
+    T EulerToPower(T x) {
+        const T coeffs[6] = { 1.f, 0.5f, 0.166666667f, 0.041666667f, 0.008333333f, 0.0013888889f };
+        T order[6];
+        for (int i = 0; i < 6; ++i) {
+            T xpow = x;
+            int k = 0;
+            //ratchet up powers of x
+            while (k < i) {
+                xpow *= x;
+                k++;
+            }
+            order[i] = xpow * coeffs[i];
+        }
+        return 1.f + order[0] + order[1] + order[2] + order[3] + order[4] + order[5];
+    }
 
     template <typename T = float>
     T SecToSample(T sec, float samplerate) {

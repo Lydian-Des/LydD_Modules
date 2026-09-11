@@ -15,15 +15,21 @@ namespace LydD {
 
 //negative wrapping modulo for most types
     template<typename T = float>
-    T wraparound(T val, T max) {
-        T mod = { 0 };
-        mod = rack::simd::ifelse(val < mod, (-val / max) + 1, 0);
-        return rack::simd::fmod(val + max * mod, max);
+    T wraparound(T val, T dt, T max, bool is_decrement = false) {
+        T mod = val + dt + max;
+        if (is_decrement) {
+            mod = val - dt + max;
+        }
+        //e.g. val almost 0, dt negative -- val either goes neg or underflows
+        // -- add max in, automatically brings into range for wrapping
+        T nxt = rack::simd::fmod(mod, max);
+        //mod = rack::simd::ifelse(val < mod, (-val / max) + 1, 0);
+        return nxt; //rack::simd::fmod(val + max * mod, max);
     }
-    template<>
-    int wraparound<int>(int val, int max);
-    template<>
-    size_t wraparound<size_t>(size_t val, size_t max);
+    //template<>
+    //int wraparound<int>(int val, int dt, int max, bool is_decrement = false);
+    //template<>
+    //size_t wraparound<size_t>(size_t val, size_t dt, size_t max, bool is_decrement = false);
 
     //min must always be less than max
     template<typename T = float>
@@ -43,8 +49,11 @@ namespace LydD {
     T exponlerp(T newmin, T newmax, T oldmin, T oldmax, T pos) {
         return newmin * rack::simd::pow((newmax / newmin), ((pos - oldmin) / (oldmax - oldmin)));
     }
-
-
+    //float_4's can individually crossfade, but custom types, or use case, may want global
+    template<typename T = float, typename C = T>
+    inline T base_crossfade(T a, T b, C p) {
+        return a + (b - a) * p;
+    }
 
 //naive normalizing curving function. uses 'Curve' to shift 
 // from 0= no change, 1= exponential, and -1= nearly logarithmic, more like inverted exponential
@@ -60,15 +69,16 @@ namespace LydD {
 
 //cubic lerp between samples 1 and 2 by looking at 0 and 3
 // (Buf must be array of bsize, rdpt itself must be < bsize) 
+// 'f' is fractional point, may not be same type as buffer
 // treats 'Buf' as circular buffer- you want rdpt to be a point at least 2 samples in 'the past'
-    template <typename T = float>
-    T cubicLerp(T* Buf, size_t rdpt, float f, size_t bsize) {
-        T fr = abs(f - (int)f); //make sure fr is between 0 - 1
-        T frsq = fr * fr;
-        T x0 = Buf[wraparound(rdpt - 1, bsize)];
+    template <typename T = float, typename F = float>
+    T cubicLerp(T* Buf, size_t rdpt, F f, size_t bsize) {
+        F fr = abs(f - rack::simd::floor(f)); //make sure fr is between 0 - 1
+        F frsq = fr * fr;
+        T x0 = Buf[wraparound(rdpt, size_t(1), bsize, true)];
         T x1 = Buf[rdpt];
-        T x2 = Buf[wraparound(rdpt + 1, bsize)];
-        T x3 = Buf[wraparound(rdpt + 2, bsize)];
+        T x2 = Buf[wraparound(rdpt, size_t(1), bsize)];
+        T x3 = Buf[wraparound(rdpt, size_t(2), bsize)];
         T a = -0.5f * x0 + 1.5f * x1 - 1.5f * x2 + 0.5f * x3;
         T b = x0 - 2.5f * x1 + 2.f * x2 - 0.5f * x3;
         T c = -0.5f * x0 + 0.5f * x2;

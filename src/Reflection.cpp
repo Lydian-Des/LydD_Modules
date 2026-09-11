@@ -44,14 +44,6 @@ struct ReflectModule : Module
         }
     }
 
-    //float Curve(float lowlim, float uplim, float Val, float Curve) {
-    //    //create normalized value, curve the value, rescale 
-    //    float normval = lerp(0.f, 1.f, lowlim, uplim, Val);
-    //    float curval = lerp(1.f, normval, 0, 1, Curve);
-    //    float curvenorm = normval * curval;
-    //    return lerp(lowlim, uplim, 0.f, 1.f, curvenorm);
-    //}
-
     enum ParamIds {
         ENUMS(WINDOW_SIZE_PARAM, 2),
         ENUMS(WINDOW_OFFSET_PARAM, 2),

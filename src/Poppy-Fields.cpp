@@ -1,6 +1,7 @@
 
 
 #include "plugin.hpp"
+#include "FractalMaker.h"
 #include <complex>
 #include <cmath>
 #include <thread>
@@ -13,85 +14,8 @@
 
 //maximum sequence length
 #define ITERS 64
-const float E = 2.7182818284590;
-
-
 using namespace LydD;
-
-
-using Brot_Pick = std::complex<float>(*)(float, std::complex<float>, std::complex<float>);
-    std::complex<float> andrewkayTan(std::complex<float> x) {
-        const float pisqby4 = 2.4674011002723397f;
-        const float oneminus8bypisq = 0.1894305308612978f;
-        std::complex<float> xsq = x * x;
-        return x * (pisqby4 - oneminus8bypisq * xsq) / (pisqby4 - xsq);
-    }
-
-    std::complex<float> Mandelbrot(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        return pow(Ztemp, EXP) + C;
-    }
-
-    std::complex<float> BurningShip(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        return pow(std::complex<float>(abs(real(Ztemp)), abs(imag(Ztemp))), EXP) + C;
-    }
-
-    std::complex<float> Beetle(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        float realZ = sinApproxNick(real(Ztemp));
-        float imagZ = sinApproxNick(imag(Ztemp));
-        //rack::simd::float_4 realZ(real(Ztemp));
-       // rack::simd::float_4 imagZ(imag(Ztemp));
-       // rack::simd::float_4 Zrnew = sin(realZ);
-       // rack::simd::float_4 Zinew = sin(imagZ);
-        return pow(std::complex<float>(realZ, imagZ), EXP) + C;
-    }
-
-    std::complex<float> Bird(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        rack::simd::float_4 realZ(real(Ztemp));
-        rack::simd::float_4 Zrnew = atan(realZ);
-        return pow(std::complex<float>(Zrnew[0], abs(imag(Ztemp))), EXP) + C;
-    }
-
-    std::complex<float> Daisy(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        return andrewkayTan(pow(C, EXP) * pow(Ztemp, E)) + (C - Ztemp);
-    }
-
-    std::complex<float> Unicorn(float EXP, std::complex<float> C, std::complex<float> Ztemp) {
-        return andrewkayTan(pow(Ztemp, EXP) + Ztemp) + (C - Ztemp);
-    }
-    //returns the function itself to reduce # of switches run
-    struct brotPicker {
-
-        Brot_Pick chooseFractal(int fractal) {
-            switch (fractal) {
-            case 0: {
-                return Mandelbrot;
-                break;
-            }
-            case 1: {
-                return BurningShip;
-                break;
-            }
-            case 2: {
-                return Beetle;
-                break;
-            }
-            case 3: {
-                return Bird;
-                break;
-            }
-            case 4: {
-                return Daisy;
-                break;
-            }
-            case 5: {
-                return Unicorn;
-                break;
-            }
-            }
-            return nullptr;
-        }
-    };
-    
+using namespace LydD::Fractal;
 
 struct PoppyModule : Module
 {
@@ -149,6 +73,7 @@ struct PoppyModule : Module
         X_TRIG_OUTPUT,
         Y_TRIG_OUTPUT,
         AUX_OUTPUT,
+        TEST,
         NUM_OUTPUTS
 	};
     enum LightIds {
@@ -175,15 +100,17 @@ struct PoppyModule : Module
     float xCoord[ITERS + 1];
     float yCoord[ITERS + 1];
 
+    int TESTOUCH;
+
     //output ranges and bounding box for zoom
     float range = 2.f;
     float _range = 0.f;
     float rangeY = 2.f;
     float _rangeY = 0.f;
-    float XplaceMin = -2;
-    float XplaceMax = 2;
-    float YplaceMin = -2;
-    float YplaceMax = 2;
+    float XplaceMin = -2.f;
+    float XplaceMax = 2.f;
+    float YplaceMin = -2.f;
+    float YplaceMax = 2.f;
     float MOVEX = 0.f;
     float MOVEY = 0.f;
     float ZOOM = 0.f;
@@ -205,11 +132,11 @@ struct PoppyModule : Module
     bool inslewY = false;
 
     //bools and ints for buttontypes    
-    bool auxbutton = 0;
+    bool auxbutton = false;
     int auxType = 0;
-    bool fract = 0;
+    bool fract = false;
     int fractal = 0;
-    bool qual = 0;
+    bool qual = false;
     int quality = 1;
     bool julia = false;
     bool jul = false;
@@ -235,6 +162,7 @@ struct PoppyModule : Module
     float Zyi = 0.f;
     float EXP = 2.f;
     float Mutate = 0.f;
+    int Kreached = 0;
 
     //sequence output members
     int Xstep = 0;
@@ -251,9 +179,10 @@ struct PoppyModule : Module
     float nowY = 0.f;
     float shiftnowX = 0.f;
     float shiftnowY = 0.f;
-    float fractOffset = 0.f;
+    float fractOffset[6] = { 0.f, -0.25f, 0.333f, -0.45f, 0.5f, -0.5f };
 
     //estimated time calculations
+    //mainly for slew limiter to work at ~all speeds
     float dtX = 0.f;
     float dtY = 0.f;
     float speedX = 0.f;
@@ -271,7 +200,7 @@ struct PoppyModule : Module
     rack::dsp::TRCFilter<float> deClick;
 
     //std::thread SEQ;
-    std::mutex fracTex;
+    //std::mutex fracTex;
     std::atomic<bool> Quitting{ false };
 
     PoppyModule() {
@@ -281,7 +210,7 @@ struct PoppyModule : Module
         configParam(C_X_PARAM, -2.f, 2.f, 0.f, "C-X");
         configParam(C_YI_PARAM, -2.f, 2.f, 0.f, "C-Yi");
         configParam(EXP_X_PARAM, 1.75f, 5.f, 2.f, "Exponent-X");
-        configParam(ITERS_PARAM, 1.f, ITERS, 32.f, "Iterations");
+        configParam(ITERS_PARAM, 1.f, ITERS, 32.f, "Length(Iterations)");
         paramQuantities[ITERS_PARAM]->snapEnabled = true;
         configParam(SEQ_START_PARAM, 0.f, ITERS, 0.f, "Start Point");
         paramQuantities[SEQ_START_PARAM]->snapEnabled = true;
@@ -445,6 +374,13 @@ struct PoppyModule : Module
             paramQuantities[AUX_BUTTON_PARAM]->name = "Beginning of Cycle";
             break;
         }
+        case 4: {
+            lights[AUX_TYPE_LIGHT + 0].setBrightness(0.5);
+            lights[AUX_TYPE_LIGHT + 1].setBrightness(0.1);
+            lights[AUX_TYPE_LIGHT + 2].setBrightness(0.9);
+            paramQuantities[AUX_BUTTON_PARAM]->name = "Escape Value";
+            break;
+        }
         }
 
         switch (quality) {
@@ -469,25 +405,8 @@ struct PoppyModule : Module
         lights[QUALITY_LIGHT + 1].setBrightness(quality == 2 && quality != 0);
         lights[QUALITY_LIGHT + 2].setBrightness(quality == 1 && quality != 0);
     }
-    void connections(const ProcessArgs& args) {
-        for (int o = X_CV_OUTPUT; o != NUM_OUTPUTS; ++o) {
-            outputs[o].setChannels(1);
-        }
 
-        inZxconnect = inputs[Z_X_INPUT].isConnected();
-        inZyconnect = inputs[Z_YI_INPUT].isConnected();
-        inCxconnect = inputs[C_X_INPUT].isConnected();
-        inCyconnect = inputs[C_YI_INPUT].isConnected();
-        inEXPconnect = inputs[EXP_X_INPUT].isConnected();
-        inYClockconnect = inputs[YI_CLOCK_INPUT].isConnected();
-        inResetconnect = inputs[RESET_INPUT].isConnected();
-        inStartconnect = inputs[SEQ_START_INPUT].isConnected();
-        inSizeconnect = inputs[SEQ_LENGTH_INPUT].isConnected();
-        inReverseconnect = inputs[REVERSE_INPUT].isConnected();
-        inslewX = inputs[SLEW_X_INPUT].isConnected();
-        inslewY = inputs[SLEW_Y_INPUT].isConnected();
-        
-
+    void set_ranges() {
         switch ((int)params[RANGE_SWITCH_PARAM].value) {
         case 0: {
             range = 2.f;
@@ -523,22 +442,32 @@ struct PoppyModule : Module
             break;
         }
         }
-        deClick.setCutoffFreq(2000.f / args.sampleRate);
-
-        //this sets the actual fractal equation used
-        brotType = Brot.chooseFractal(fractal);
     }
-    void combineParameters(const ProcessArgs& args) {
 
-        //need to only update sequence when parameters change, but OOOh so many of them
-        float movexpr = MOVEX;
-        float moveypr = MOVEY;
-        float zoompr = ZOOM;
-        bool julpr = julia;
-        bool mirpr = mirror;
-        int fracpr = fractal;
-        int qualpr = quality;
+    void connections(const ProcessArgs& args) {
+        for (int o = X_CV_OUTPUT; o != NUM_OUTPUTS; ++o) {
+            outputs[o].setChannels(1);
+        }
 
+        inZxconnect = inputs[Z_X_INPUT].isConnected();
+        inZyconnect = inputs[Z_YI_INPUT].isConnected();
+        inCxconnect = inputs[C_X_INPUT].isConnected();
+        inCyconnect = inputs[C_YI_INPUT].isConnected();
+        inEXPconnect = inputs[EXP_X_INPUT].isConnected();
+        inYClockconnect = inputs[YI_CLOCK_INPUT].isConnected();
+        inResetconnect = inputs[RESET_INPUT].isConnected();
+        inStartconnect = inputs[SEQ_START_INPUT].isConnected();
+        inSizeconnect = inputs[SEQ_LENGTH_INPUT].isConnected();
+        inReverseconnect = inputs[REVERSE_INPUT].isConnected();
+        inslewX = inputs[SLEW_X_INPUT].isConnected();
+        inslewY = inputs[SLEW_Y_INPUT].isConnected();
+        
+        set_ranges();
+        
+        deClick.setCutoffFreq(2000.f / args.sampleRate);
+    }
+
+    void set_buttons() {
         latchButton(params[MIRROR_BUTTON_PARAM].value, &mirror, &mir);
         latchButton(params[INVERT_BUTTON_PARAM].value, &invert, &inv);
         momentButton(params[CLOCK_BUTTON_PARAM].value, &clockTapSet, &clockTapReset);
@@ -546,7 +475,7 @@ struct PoppyModule : Module
         momentButton(params[MOVE_TO_Z_BUTTON_PARAM].value, &MovetoZ, &MZ);
 
         incrementButton(params[FRACT_BUTTON_PARAM].value, &fract, 6, &fractal);
-        incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 4, &auxType);
+        incrementButton(params[AUX_BUTTON_PARAM].value, &auxbutton, 5, &auxType);
         incrementButton(params[QUALITY_BUTTON_PARAM].value, &qual, 4, &quality);
         latchButton(params[JULIA_BUTTON_PARAM].value, &julia, &jul);
 
@@ -564,6 +493,11 @@ struct PoppyModule : Module
             latchButton(params[REVERSE_BUTTON_PARAM].value, &reverse, &rev);
         }
 
+        //this sets the actual fractal equation used
+        brotType = Brot.chooseFractal(fractal);
+    }
+
+    void set_sequence_size() {
         seqsize = params[ITERS_PARAM].value;
         if (inSizeconnect) {
             seqsize = lerp(1, ITERS, 0, 5, rack::math::clamp(int(inputs[SEQ_LENGTH_INPUT].getVoltage(0)), 0, 5));
@@ -579,43 +513,46 @@ struct PoppyModule : Module
             Xseqstep = 0;
             Yseqstep = 0;
         }
-        
+    }
 
+    void set_base_params() {
         float EXPparam = params[EXP_X_PARAM].value;
         float EXPin = (inEXPconnect) ? abs(inputs[EXP_X_INPUT].getVoltage(0)) : 0.f;
-        float Expcombo = EXPparam + EXPin;
+        EXP = EXPparam + EXPin;
 
         float Zxpar = params[Z_X_PARAM].value;
         float Zypar = params[Z_YI_PARAM].value;
         float Zxin = (inZxconnect) ? inputs[Z_X_INPUT].getVoltage(0) : 0.f;
         float Zyin = (inZyconnect) ? inputs[Z_YI_INPUT].getVoltage(0) : 0.f;
-        float Zxcombo = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zxin) + Zxpar, -1.5f, 1.5f);
-        float Zycombo = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zyin) + Zypar, -1.5f, 1.5f);
+        Zx = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zxin) + Zxpar, -1.5f, 1.5f);
+        Zyi = rack::math::clamp(lerp(-1.f, 1.f, -5.f, 5.f, Zyin) + Zypar, -1.5f, 1.5f);
 
         float Cxpar = params[C_X_PARAM].value;
         float Cypar = params[C_YI_PARAM].value;
         float Cxin = (inCxconnect) ? inputs[C_X_INPUT].getVoltage(0) / 5.f : 0.f;
         float Cyin = (inCyconnect) ? -(inputs[C_YI_INPUT].getVoltage(0)) / 5.f : 0.f;
         //default etch-a-sketch style cardinal
-        float CX = Cxin + Cxpar;
-        float CY = Cyin + Cypar;
+        float Cxcombo = Cxin + Cxpar;
+        float Cycombo = Cyin + Cypar;
         //turn soil into polar knobs instead cuz circles are fun
         if (isPolarC) {
-            float TY = CY * _PI;
+            float TY = Cycombo * _PI;
             TY = wrapFree(TY, -_PI, _PI);
-            PolartoCart(CX, TY, &CX, &CY);
+            PolartoCart(Cxcombo, TY, &Cxcombo, &Cycombo);
         }
-        float Cxcombo = lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, CX);
-        Cxcombo = rack::math::clamp(Cxcombo, XplaceMin, XplaceMax);
-        float Cycombo = lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, CY);
-        Cycombo = rack::math::clamp(Cycombo, YplaceMin, YplaceMax);
+        Cx = lerp(XplaceMin, XplaceMax, -1.8f, 1.8f, Cxcombo);
+        Cx = rack::math::clamp(Cx, XplaceMin, XplaceMax);
+        Cyi = lerp(YplaceMin, YplaceMax, -1.8f, 1.8f, Cycombo);
+        Cyi = rack::math::clamp(Cyi, YplaceMin, YplaceMax);
+    }
 
+    void set_auto_move() {
         float CenterX = params[MOVE_X_PARAM].value;
         float CenterY = params[MOVE_YI_PARAM].value;
         //fun little adjustment check to move to actual fractal space location
-        if (CtoMove && ((Cycombo != CenterY) || (Cxcombo != CenterX))) {
-            params[MOVE_X_PARAM].setValue(Cxcombo);
-            params[MOVE_YI_PARAM].setValue(Cycombo);
+        if (CtoMove && ((Cyi != CenterY) || (Cx != CenterX))) {
+            params[MOVE_X_PARAM].setValue(Cx);
+            params[MOVE_YI_PARAM].setValue(Cyi);
             //zero soil knobs to retain location
             params[C_X_PARAM].setValue(0.f);
             params[C_YI_PARAM].setValue(0.f);
@@ -626,7 +563,9 @@ struct PoppyModule : Module
             params[Z_X_PARAM].setValue(CenterX);
             params[Z_YI_PARAM].setValue(CenterY);
         }
+    }
 
+    void set_edges() {
         //update places after potential MOVE adjustment
         ZOOM = params[ZOOM_PARAM].value;
         MOVEX = params[MOVE_X_PARAM].value;
@@ -642,48 +581,9 @@ struct PoppyModule : Module
         YplaceMin += MOVEY;
         YplaceMax = zoomax;
         YplaceMax += MOVEY;
+    }
 
-        //check for any change in parameters that could result in a different sequence
-        //this also is necessary to tell when to draw the picture again
-        //group the writing of shared parameters so i can lock it once here
-        //how in tf do i make something like this 'lockless'
-        {
-            //std::lock_guard<std::mutex> lock(fracTex);
-
-            float cxpr = Cx;
-            float cypr = Cyi;
-            float zxpr = Zx;
-            float zypr = Zyi;
-            float expr = EXP;
-
-            Cx = Cxcombo;
-            Cyi = Cycombo;
-            Zx = Zxcombo;
-            Zyi = Zycombo;
-            EXP = Expcombo;
-
-            bool drawneeded = movexpr != MOVEX;
-            drawneeded |= moveypr != MOVEY;
-            drawneeded |= zoompr != ZOOM;;
-            drawneeded |= zxpr != Zxcombo;
-            drawneeded |= zypr != Zycombo;
-            drawneeded |= expr != Expcombo;
-            drawneeded |= julpr != julia;
-            drawneeded |= fracpr != fractal;
-
-            bool allchange = drawneeded;
-            allchange |= cxpr != Cxcombo;
-            allchange |= cypr != Cycombo;
-            allchange |= mirpr != mirror;
-            //tell the worker that something changed
-            if (allchange) _ANYCHANGE.store(true);
-
-            drawneeded |= qualpr != quality;
-            //tell the widget it needs to calculate
-            if (drawneeded) _DRAWCHANGE.store(true);
-        }
-
-
+    void set_slew() {
         //making slew limiter RiseFall proportional to estimated time between clock pulses(speedX, speedY). 
         float smoothnessX = -(params[SLEW_X_PARAM].value) + 1;
         if (inslewX) {
@@ -700,6 +600,64 @@ struct PoppyModule : Module
 
     }
 
+    void combineParameters(const ProcessArgs& args) {
+        //capture previous values
+        //need to only update sequence when parameters change, but OOOh so many of them
+        float movexpr = MOVEX;
+        float moveypr = MOVEY;
+        float zoompr = ZOOM;
+        bool julpr = julia;
+        bool mirpr = mirror;
+        int fracpr = fractal;
+        int qualpr = quality;
+        float cxpr = Cx;
+        float cypr = Cyi;
+        float zxpr = Zx;
+        float zypr = Zyi;
+        float expr = EXP;
+
+        set_buttons();
+
+        set_sequence_size();
+        
+        set_base_params();
+
+        set_auto_move();
+
+        set_edges();
+
+        set_slew();
+        //check for any change in parameters that could result in a different sequence
+        //this also is necessary to tell when to draw the picture again
+        //group the writing of shared parameters so i can lock it once here
+        //how in tf do i make something like this 'lockless'
+        // {
+            //std::lock_guard<std::mutex> lock(fracTex);
+
+            bool drawneeded = movexpr != MOVEX;
+            drawneeded |= moveypr != MOVEY;
+            drawneeded |= zoompr != ZOOM;;
+            drawneeded |= zxpr != Zx;
+            drawneeded |= zypr != Zyi;
+            drawneeded |= expr != EXP;
+            drawneeded |= julpr != julia;
+            drawneeded |= fracpr != fractal;
+
+            bool allchange = drawneeded;
+            allchange |= cxpr != Cx;
+            allchange |= cypr != Cyi;
+            allchange |= mirpr != mirror;
+            //tell the worker that something changed
+            if (allchange) _ANYCHANGE.store(true);
+
+            drawneeded |= qualpr != quality;
+            //tell the widget it needs to calculate
+            if (drawneeded) _DRAWCHANGE.store(true);
+        //}
+            outputs[TEST].setVoltage(TESTOUCH, 0);
+
+    }
+
     void createSequence() {
        // while (true) {
             //if theres been no change or the module is being deleted, just leave so no lock gets lost
@@ -711,16 +669,15 @@ struct PoppyModule : Module
             float expon = 2;
             float xco[ITERS + 1];
             float yco[ITERS + 1];
+
+
             //still make sure math only runs when theres been a change
             if (_ANYCHANGE) {
                 //lock direct access to shared data
                 //ACTUALLY maybe worker cant ever lock main out
-                {
+                //{
                     //std::lock_guard<std::mutex> lock(fracTex);
-                    if (mirror) {
-                        Cyi = -Cyi;
-                        Zyi = -Zyi;
-                    }
+                
                     C = std::complex<float>(Cx, Cyi);
                     Z = std::complex<float>(Zx, Zyi);
                     expon = EXP;
@@ -728,46 +685,23 @@ struct PoppyModule : Module
                         std::complex<float>Zswap = Z;
                         Z = C;
                         C = Zswap;
+                        
                     }
-                }
-                //now this can run without stopping anything
-                for (int i = 0; i <= ITERS; ++i) {
-                    std::complex<float>pastVal = Z;
-                    Z = brotType(expon, C, pastVal);
-                    if (abs(Z) <= 2.f) {
-                        xco[i] = (real(Z));
-                        yco[i] = (imag(Z));
+                //}
+                    if (mirror) {
+                        C = std::complex<float>(real(C), -imag(C));
                     }
-                    else if (abs(Z) > 2.f || (rack::math::isNear(real(Z), real(pastVal), 0.0416) && rack::math::isNear(imag(Z), imag(pastVal), 0.0416))) {
-                        //if it doesnt get to do any iterations, just copy in the C value
-                        if (i == 0) {
-                            for (int p = 0; p <= ITERS; ++p) {
-                                xco[p] = real(C);
-                                yco[p] = imag(C);
-                            }
-                        }
-                        else {
-                            //repeat instead of calculating, way lighter
-                            int q = 0;
-                            for (int p = i; p <= ITERS; ++p) {
-                                int rptind = q % i;
-                                xco[p] = xco[rptind];
-                                yco[p] = yco[rptind];
-                                ++q;
-                            }
-                        }
-                        break;
+                //this runs until ITERS(or escape) and returns K while setting the sequence in x amd y
+                Kreached = RunVertical(brotType, xco, yco, ITERS, Z, C, expon);
 
-                    }
-                }
                 //lock again to transfer
-                {
+                //{
                     //std::lock_guard<std::mutex> lock(fracTex);
-                    for (int i = 0; i <= ITERS; ++i) {
+                    for (int i = 0; i < ITERS; ++i) {
                         xCoord[i] = xco[i];
                         yCoord[i] = yco[i];
                     }
-                }
+               // }
 
                 //wait for another change to occur
                 _ANYCHANGE.store(false);
@@ -777,18 +711,131 @@ struct PoppyModule : Module
         //}
     }
 
-
-    void generateOutput(const ProcessArgs& args) {
-     
+    void set_step_wrap() {
         //wrap any given sequence around the max size(ITERS)
         int bX = (Xseqstep + seqstart);
         Xstep = bX % ITERS;
-        XshiftStep = wraparound(bX - shiftOffset, ITERS);// (Xseqstep + seqstart - shiftOffset) % ITERS;
+        XshiftStep = wraparound(bX, shiftOffset, ITERS, true);// (Xseqstep + seqstart - shiftOffset) % ITERS;
         //XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
         int bY = (Yseqstep + seqstart);
         Ystep = bY % ITERS;
-        YshiftStep = wraparound(bY - shiftOffset, ITERS); // (Yseqstep + seqstart - shiftOffset) % ITERS;
+        YshiftStep = wraparound(bY, shiftOffset, ITERS, true); // (Yseqstep + seqstart - shiftOffset) % ITERS;
         //YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
+    }
+
+    void set_X_outs(float st,float clk, float main, float shift) {
+
+        float timestepX = timerX.process(st);
+
+        bool isX = TriggerX.process(clk, 0.8f, 1.f);
+        if (isX) {
+            if (reverse) {
+                Xseqstep -= 1;
+            }
+            else {
+                Xseqstep += 1;
+            }
+            if (Xseqstep > seqsize) {
+                Xseqstep = 0;
+            }
+            if (Xseqstep < 0) {
+                Xseqstep = seqsize;
+            }
+            nowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, main) + fractOffset[fractal];
+            shiftnowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shift) + fractOffset[fractal];
+            dtX = timestepX;
+            timerX.reset();
+        }
+        outputs[X_TRIG_OUTPUT].setVoltage(TriggerX.isHigh() * 5.0f, 0);
+
+        //gotta put in 2 more copies of the slew limiter for the shift register outputs. or Not.
+        nowX = _slewlimitX.process(st, nowX);
+        outputs[X_CV_OUTPUT].setVoltage(nowX, 0);
+
+        outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
+
+        speedX = 1.f / dtX;
+    }
+    void set_Y_outs(float st, float clk, float main, float shift) {
+
+        float timestepY = timerY.process(st);
+
+        bool isY = TriggerY.process(clk, 0.8f, 1.f);
+        if (isY) {
+
+
+            if (reverse) {
+                Yseqstep -= 1;
+            }
+            else {
+                Yseqstep += 1;
+            }
+            if (Yseqstep > seqsize) {
+                Yseqstep = 0;
+            }
+            if (Yseqstep < 0) {
+                Yseqstep = seqsize;
+            }
+            nowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, main) + fractOffset[fractal];
+            shiftnowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shift) + fractOffset[fractal];
+            dtY = timestepY;
+            timerY.reset();
+        }
+        outputs[Y_TRIG_OUTPUT].setVoltage(TriggerY.isHigh() * 5.0f, 0);
+
+        nowY = _slewlimitY.process(st, nowY);
+        outputs[Y_CV_OUTPUT].setVoltage(nowY, 0);
+        outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
+
+        speedY = 1.f / dtY;
+    }
+
+    void set_aux_outs(float st) {
+        //is it the beginning? is it the end?           are they the same thing?
+        bool BOC = (Xstep == seqstart);
+        bool BOCtrig = _EOCtrig.process(BOC);
+        if (BOCtrig) _EOCpulse.trigger(0.8f);
+        bool BOCpulse = _EOCpulse.process(st);
+
+        switch (auxType) {
+
+        case 0: {
+            float sumOut = (nowX + nowY);
+            outputs[AUX_OUTPUT].setVoltage(sumOut, 0);
+            break;
+        }
+        case 1: {
+            float magOut = loosesqrt(nowX * nowX + nowY * nowY);
+            outputs[AUX_OUTPUT].setVoltage(magOut, 0);
+            break;
+        }
+        case 2: {
+            float averageform = 0.f;
+            for (int a = seqstart; a < (seqstart + seqsize); ++a) {
+                averageform += xCoord[a % ITERS] + yCoord[a % ITERS];
+            }
+            averageform /= seqsize;
+            deClick.process(averageform);
+            averageform = deClick.lowpass();
+            float avelerp = lerp(_range, range, -2.f, 2.f, averageform);
+            outputs[AUX_OUTPUT].setVoltage(avelerp, 0);
+            break;
+        }
+        case 3: {
+            outputs[AUX_OUTPUT].setVoltage(BOCpulse * 10.f, 0);
+            break;
+        }
+        case 4: {
+            float kay = float(Kreached) / (float)ITERS;
+            outputs[AUX_OUTPUT].setVoltage(kay, 0);
+            break;
+        }
+        }
+    }
+
+    void generateOutput(const ProcessArgs& args) {
+     
+        set_step_wrap();
 
 
         float cvValX = 0;
@@ -824,8 +871,6 @@ struct PoppyModule : Module
         shiftValX *= zoomFactor;
         shiftValY *= zoomFactor;
 
-        float timestepX = timerX.process(args.sampleTime);
-        float timestepY = timerY.process(args.sampleTime);
 
         float baseClock = inputs[CLOCK_INPUT].getVoltage(0) + clockTapSet;
         float yClock = baseClock;
@@ -834,104 +879,12 @@ struct PoppyModule : Module
             yClock = inputs[YI_CLOCK_INPUT].getVoltage(0);
         }
 
-        bool isX = TriggerX.process(baseClock, 0.8f, 1.f);
-        if (isX) {
-            if (reverse) {
-                Xseqstep -= 1;
-            }
-            else {
-                Xseqstep += 1;
-            }
-            if (Xseqstep > seqsize) {
-                Xseqstep = 0;
-            }
-            if (Xseqstep < 0) {
-                Xseqstep = seqsize;
-            }
-            nowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, cvValX) + fractOffset;
-            shiftnowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shiftValX) + fractOffset;
-            dtX = timestepX;
-            timerX.reset();
-        }
-        outputs[X_TRIG_OUTPUT].setVoltage(TriggerX.isHigh() * 5.0f, 0);
+        set_X_outs(args.sampleTime, baseClock, cvValX, shiftValX);
 
-       
-        speedX = 1.f / dtX;
+        set_Y_outs(args.sampleTime, yClock, cvValY, shiftValY);
 
-        bool isY = TriggerY.process(yClock, 0.8f, 1.f);
-        if (isY) {
-                    
-                    
-            if (reverse) {
-                Yseqstep -= 1;
-            }
-            else {
-                Yseqstep += 1;
-            }
-            if (Yseqstep > seqsize) {
-                Yseqstep = 0;
-            }
-            if (Yseqstep < 0) {
-                Yseqstep = seqsize;
-            }
-            nowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, cvValY) + fractOffset;
-            shiftnowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shiftValY) + fractOffset;
-            dtY = timestepY;
-            timerY.reset();
-        }
-        outputs[Y_TRIG_OUTPUT].setVoltage(TriggerY.isHigh() * 5.0f, 0);
-
-        speedY = 1.f / dtY;
-
-            
-        //gotta put in 2 more copies of the slew limiter for the shift register outputs. or Not.
-        float slewingX = _slewlimitX.process(args.sampleTime, nowX);
-        outputs[X_CV_OUTPUT].setVoltage(slewingX, 0);
-
-        outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
-
-        float slewingY = _slewlimitY.process(args.sampleTime, nowY);
-        outputs[Y_CV_OUTPUT].setVoltage(slewingY, 0);
-
-        outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
-
-        //is it the beginning? is it the end?           are they the same thing?
-        bool BOC = (Xstep == seqstart);
-        bool BOCtrig = _EOCtrig.process(BOC);
-        if (BOCtrig) _EOCpulse.trigger(0.8f);
-        bool BOCpulse = _EOCpulse.process(args.sampleTime);
-
-        switch (auxType) {
-            
-        case 0: {
-            float sumOut = (slewingX + slewingY);
-            outputs[AUX_OUTPUT].setVoltage(sumOut, 0);
-            break;
-        }
-        case 1: {
-            float magOut =  loosesqrt(slewingX * slewingX + slewingY * slewingY);
-            outputs[AUX_OUTPUT].setVoltage(magOut, 0);
-            break;
-        }
-        case 2: {
-            float averageform  = 0.f;
-            for (int a = seqstart; a < (seqstart + seqsize); ++a) {
-                averageform += xCoord[a % ITERS] + yCoord[a % ITERS];
-            }
-            averageform /= seqsize;
-            deClick.process(averageform);
-            averageform = deClick.lowpass();
-            float avelerp = lerp(_range, range, -2.f, 2.f, averageform);
-            outputs[AUX_OUTPUT].setVoltage(avelerp, 0);
-            break;
-        }
-        case 3: {                
-            outputs[AUX_OUTPUT].setVoltage(BOCpulse * 10.f, 0);
-            break;
-        }
-            
-        }
-        
+        set_aux_outs(args.sampleTime);
+ 
     }
 
     json_t* dataToJson() override {
@@ -941,9 +894,10 @@ struct PoppyModule : Module
         json_t* AuxJ = json_real(auxType);
         json_t* FractalJ = json_real(fractal);
         json_t* JuliaJ = json_boolean(julia);
-        json_t* panelJ = json_integer(currPanel);
         json_t* polarJ = json_boolean(isPolarC);
-
+        json_t* mirrorJ = json_boolean(mirror);
+        json_t* invertJ = json_boolean(invert);
+        json_t* panelJ = json_integer(currPanel);
 
         json_object_set_new(rootJ, "Visuals", VisualJ);
         json_object_set_new(rootJ, "AuxType", AuxJ);
@@ -951,6 +905,8 @@ struct PoppyModule : Module
         json_object_set_new(rootJ, "Julia", JuliaJ);
         json_object_set_new(rootJ, "Panel", panelJ);
         json_object_set_new(rootJ, "Polar", polarJ);
+        json_object_set_new(rootJ, "Mirror", mirrorJ);
+        json_object_set_new(rootJ, "Invert", invertJ);
 
         return rootJ;
     }
@@ -962,20 +918,17 @@ struct PoppyModule : Module
         json_t* VisualJ = json_object_get(rootJ, "Visuals");
         json_t* panelJ = json_object_get(rootJ, "Panel");
         json_t* polarJ = json_object_get(rootJ, "Polar");
-        if (FractalJ) {
-            fractal = json_real_value(FractalJ);
-        }
-        if (JuliaJ) {
-            julia = json_boolean_value(JuliaJ);
-        }
-        if (AuxJ) {
-            auxType = json_real_value(AuxJ);
-        }
-        if (VisualJ) {
-            quality = json_real_value(VisualJ);
-        }
-        if (panelJ) currPanel = json_integer_value(panelJ);
+        json_t* mirrorJ = json_object_get(rootJ, "Mirror");
+        json_t* invertJ = json_object_get(rootJ, "Invert");
+
+        if (FractalJ)  fractal = json_real_value(FractalJ);        
+        if (JuliaJ)  julia = json_boolean_value(JuliaJ);
+        if (AuxJ) auxType = json_real_value(AuxJ);
+        if (VisualJ) quality = json_real_value(VisualJ);
         if (polarJ) isPolarC = json_boolean_value(polarJ);
+        if (mirrorJ) mirror = json_boolean_value(mirrorJ);
+        if (invertJ) invert = json_boolean_value(invertJ);
+        if (panelJ) currPanel = json_integer_value(panelJ);
     }
 
 };
@@ -985,30 +938,72 @@ class picture {
 public:
     int* kTerm;
     size_t buf_size;
-    unsigned char* Kvals;
+    unsigned char* Kcolors;
+    float* Khues;
     picture(){
         kTerm = new int[160 * 120];
         buf_size = 160 * 120 * 4 * sizeof(unsigned char);
-        Kvals = new unsigned char[buf_size];
-        memset(Kvals, 1, buf_size);
+        Kcolors = new unsigned char[buf_size];
+        Khues = new float[buf_size * 4]; //h ,s ,l per pixel
+        memset(Kcolors, 1, buf_size);
+        memset(Khues, 1, buf_size * 4);
+    }
+    picture(int wid, int hei) {
+        kTerm = new int[wid * hei];
+        buf_size = wid * hei * 4 * sizeof(unsigned char);
+        Kcolors = new unsigned char[buf_size];
+        Khues = new float[buf_size * 4]; //h ,s ,l per pixel
+        memset(Kcolors, 1, buf_size);
+        memset(Khues, 1, buf_size * 4);
+
     }
     void Empty() {
         
         for (size_t i = 0; i < buf_size; ++i) {
-            this->Kvals[i] = 1;
+            this->Kcolors[i] = 1;
+            int ix = i * 4;
+            this->Khues[ix + 0] = 1;
+            this->Khues[ix + 1] = 1;
+            this->Khues[ix + 2] = 1;
+            this->Khues[ix + 3] = 1;
         }
     }
 
-    void MakeColor(int index, float red, float green, float blue, float alpha) {
-        this->Kvals[index * 4 + 0] = red;
-        this->Kvals[index * 4 + 1] = green;
-        this->Kvals[index * 4 + 2] = blue;
-        this->Kvals[index * 4 + 3] = alpha;
+    unsigned char colorAverage(unsigned char col1, unsigned char col2) {
+        return (col1 & col2) + ((col1 ^ col2) >> 1);
+    }
+    void AverageImage() {
+        unsigned char newcolors[buf_size];
+        for (int i = 0; i < int(buf_size - 1); i += 1) {
+            newcolors[i] = colorAverage(Kcolors[i], Kcolors[i + 1]);
+        }
+        std::memcpy(this->Kcolors, newcolors, sizeof(unsigned char) * buf_size);
+    }
+
+    void setHue(int idx, float h, float s, float l, float a) {
+        this->Khues[idx * 4 + 0] = h;
+        this->Khues[idx * 4 + 1] = s;
+        this->Khues[idx * 4 + 2] = l;
+        this->Khues[idx * 4 + 3] = a;
+    }
+    void shiftHue(int idx, float dt) {
+        this->Khues[idx * 4 + 0] = std::fmod(this->Khues[idx * 4 + 0] + dt, 360.f);
+    }
+    void MakeColor(int index) {
+        int ix = index * 4;
+        float _r, _b, _g;
+        Components::HSLtoRGB(this->Khues[ix + 0], this->Khues[ix + 1], this->Khues[ix + 2], &_r, &_g, &_b);
+
+
+        this->Kcolors[ix + 0] = _r;
+        this->Kcolors[ix + 1] = _g;
+        this->Kcolors[ix + 2] = _b;
+        this->Kcolors[ix + 3] = this->Khues[ix + 3];
     }
 
 
     ~picture() {
-        delete[] this->Kvals;
+        delete[] this->Kcolors;
         delete[] this->kTerm;
     }
 };
@@ -1066,22 +1061,32 @@ struct FracWidget : Widget {
     brotPicker Brot;
     PoppyModule* Fracking;
     picture* pic;
+    FractalRenderer* FracDraw;
     int frames = 0;
     int pictureColor = -1;
     bool isWindowOpen = false;
     int drawboxX = 0;
     int drawboxY = 0;
+    const int iteras = 50;
+    const int itergroup = 5;
+    float colorincr = 0.f;
+    float colorphase = 0.f;
+    rack::dsp::BooleanTrigger _change;
 
-    FracWidget(PoppyModule* module, Vec topLeft) {
+    FracWidget(PoppyModule* module, Vec topLeft, Vec size) {
         Fracking = module;
         box.pos = topLeft;
-        pic = new(picture);
+        isWindowOpen = true;
+        this->setSize(size);
         drawboxX = box.size.x;
         drawboxY = box.size.y;
-        isWindowOpen = true;
+        pic = new picture(drawboxX, drawboxY);
+        FracDraw = new FractalRenderer(drawboxX, drawboxY);
+        FracDraw->setNumIters(iteras);
     }
     ~FracWidget() {
         if (pic) delete pic;
+        if (FracDraw) delete FracDraw;
     }
 
     //needed when dealing with image handles and a closeable window in a DAW
@@ -1095,16 +1100,24 @@ struct FracWidget : Widget {
             nvgDeleteImage(e.vg, pictureColor);
             pictureColor = -1;
         }
-        //if (pic) delete pic;
         isWindowOpen = false;
        // onContextDestroy(e);
     }
 
+    //in 1d array find scalar 2d distance based on width pitch
+    float indexDistanceFromPoint(int idx, int width, int ptx, int pty) {
+        int l = idx % width;
+        int j = idx / width;
+        return (abs(ptx - l) + abs(pty - j)) / (float)(ptx + pty);
+    }
+
     void drawLayer(const DrawArgs& args, int layer) override {
         Brot_Pick chosenBrot;
-        drawboxX = box.size.x;
-        drawboxY = box.size.y;
+        //drawboxX = box.size.x;
+        //drawboxY = box.size.y;
         //make sure its also being asked to draw anything
+
+
         if (layer == 1 && Fracking && isWindowOpen) {
             
             nvgSave(args.vg);
@@ -1120,106 +1133,118 @@ struct FracWidget : Widget {
             float ydrawMax = Fracking->YplaceMax;
             float ZparX = Fracking->Zx;
             float ZparY = Fracking->Zyi;
+            float expo = Fracking->EXP;
             int fractype = Fracking->fractal;
+            bool jules = Fracking->julia;
+            int style = Fracking->quality;
             chosenBrot = Brot.chooseFractal(fractype);
-
+            
+            int centerX = drawboxX * 0.5;
+            int centerY = drawboxY * 0.5;
+            //image creation and updating 
             if (pictureColor == -1) {
-                pictureColor = nvgCreateImageRGBA(args.vg, drawboxX, drawboxY, 0, pic->Kvals);
+                pictureColor = nvgCreateImageRGBA(args.vg, drawboxX, drawboxY, 0, pic->Kcolors);
             }
             else if (pictureColor != -1) {
-                nvgUpdateImage(args.vg, pictureColor, pic->Kvals);
+                nvgUpdateImage(args.vg, pictureColor, pic->Kcolors);
             }
 
-            if (Fracking->quality == 0) {
+            bool change = _change.process(style == 0);
+            //Blind Lines = no fractal math, only clear once on moment of change
+            if (change) {
                 pic->Empty();
             }
-            //if we're drawing the fractal, wait for a change to happen AND only every 8 frames to update
-            if(Fracking->quality != 0 && (frames % 8 == 0 && Fracking->_DRAWCHANGE)){
-                /*filling screenbuffer with RGBA values*/
-                pic->Empty();
-                int centerX = drawboxX * 0.5;
-                int centerY = drawboxY * 0.5;
-                int iteras = 25;
-                float _red = 0;
-                float _gre = 0;
-                float _blu = 0;
-                float _alp = 10;
-                for (int j = 0; j < drawboxY; j += 1) {
-                    for (int l = 0; l < drawboxX; l += 1) {
 
-                        int index = j * drawboxX + l;
-                        float distFromCenter = (abs(centerX - l) + abs(centerY - j)) / (float)(centerX + centerY);
-                        distFromCenter = (-distFromCenter) + 1.f; //normalize then invert for central glow
-                        std::complex<float>Z(ZparX, ZparY);
-                        float ilerp = lerp(xdrawMin, xdrawMax, 0.f, (float)drawboxX, (float)l);
-                        float jlerp = lerp(ydrawMin, ydrawMax, 0.f, (float)drawboxY, (float)j);
-                        std::complex<float>C(ilerp, jlerp);
-
-                        float expo = Fracking->EXP;
-
-                        if (Fracking->julia) {
-                            std::complex<float>Zswap = Z;
-                            Z = C;
-                            C = Zswap;
-                        }
-
-                        int k;
-                        std::complex<float>Ztemp(0, 0);
-
-                        for (k = 0; k < iteras; ++k) {
-                            Ztemp = Z;
-                            Z = chosenBrot(expo, C, Ztemp);
-                            if (abs(Z) > 2.f) break;
-
-                            //just don draw so many dots ok?
-                            if (Fracking->quality == 3 && (k > 8 && j % 2 == 0 /*&& l % 4 == 0*/)) {                       
-                                int Xloc = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, real(Z));
-                                int Yloc = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, imag(Z));
-                                if (Xloc > 10 && Xloc < drawboxX - 10 && Yloc > 10 && Yloc < drawboxY - 10) {
-                                    int Zpixindex = Yloc * drawboxX + Xloc;
-                                    float redadd = _red;
-                                    float greadd = _gre;
-                                    float bluadd = _blu;
-
-                                    Components::HSLtoRGB(30 * (k % 10), /*abs(Z) **/ 0.5f, 0.5f, &_red, &_gre, &_blu);
-                                    redadd = _red;
-                                    greadd = _gre;
-                                    bluadd = _blu;
-                                    _alp = (_alp > 150) ? 150 : _alp + 5;
-                                    pic->MakeColor(Zpixindex, redadd, greadd, bluadd, _alp);
-                                }
-                            }
-                        }
-
-                        pic->kTerm[index] = k;
-
-                        
-
-                        if (Fracking->quality == 1) {
-                            Components::HSLtoRGB(300, 0.1, (float)(k / iteras) * distFromCenter, &_red, &_gre, &_blu);
-                            pic->MakeColor(index, _red, _gre, _blu, 200.f);
-                            
-                        }
-                        else if (Fracking->quality == 2) {
-                            float colorval = ((k <= iteras - 1) ? 280 - pow(2.f, k * 0.75) : abs(Z - Ztemp) * 30.f);
-                            Components::HSLtoRGB(colorval, 0.8 * distFromCenter, 0.5, &_red, &_gre, &_blu);
-                            pic->MakeColor(index, _red, _gre, _blu, 200.f);
-                            
-                        }
-             
-                    }
-                }
+            //if we're drawing the fractal,
+            //any time a change is detected, clear the data
+            //and start from the beginning
+            if (Fracking->_DRAWCHANGE || frames == 0) {
                 frames = 0;
+                pic->Empty();
+                FracDraw->clear();
                 Fracking->_DRAWCHANGE.store(false);
             }
-            ++frames;
-            
+
+            colorincr = incrementSize(100.f, 2000.f);
+            //render 'iteras' passes of the fractal one at a time
+            if (style != 0 && frames <= (iteras / itergroup)) {
+                /*filling screenbuffer with RGBA values*/
+                Fracking->TESTOUCH = FracDraw->getKEscapeFraction((drawboxX / 2) * (drawboxY / 2));
+
+                Vec Xwindow = Vec(xdrawMin, xdrawMax);
+                Vec Ywindow = Vec(ydrawMin, ydrawMax);
+                std::complex<float> Z(ZparX, ZparY);
+                //run 5 iterations at a time except - if buddha only do it once
+                if (!(frames > 1 && style == 3)) {
+                    for (int f = 0; f < itergroup; ++f) {
+                        FracDraw->RunHorizontal(chosenBrot, Z, expo, Xwindow, Ywindow, jules);
+
+                    }
+                }
+                /*if (frames <= 5) {
+                    FracDraw->checkRing(chosenBrot, Z, expo, Xwindow, Ywindow, jules);
+                }*/
+                
+
+                colorphase = std::fmod(colorphase + colorincr, 330.f);
+                //decide colors based on mode
+                for (int ix = 0; ix < drawboxX * drawboxY; ++ix) {
+
+                    float distFromCenter = indexDistanceFromPoint(ix, drawboxX, centerX, centerY);
+                    distFromCenter = (-distFromCenter) + 1.f; //normalize then invert for central glow
+                    //get info for this round of iterations
+                    float kv = FracDraw->getKEscapeFraction(ix);
+                    float normk = kv / float(iteras / 2.f);
+                    float ksmooth = normalCurve(-1.f, 1.f, normk, -0.9f);
+
+                    bool hasescaped = FracDraw->getEscapeSingle(ix);
+                    bool hasfinished = FracDraw->getInSetSingle(ix);
+                    // black & white "MonoChrome"
+                    if (style == 1) {
+                        float lightk = ksmooth * 255.f;;
+                        float brightness = !hasescaped ? 130 : lightk;
+                        brightness = hasfinished ? 30 : brightness;
+                        brightness *= distFromCenter ;
+                        pic->setHue(ix, 0.f, 0.f, 0.8, brightness);
+
+                    }
+                    // Color Shifting "Flower"
+                    else if (style == 2) {
+                        float zcol = abs(FracDraw->getZsingle(ix)) * 2.f;
+                        float colorval = hasfinished ? 30 + (zcol + ksmooth) * 120.f : ksmooth * 185.f;
+                        float alpha =  10 + ksmooth * 180.f;
+                        pic->setHue(ix, colorphase + colorval, 0.6f * distFromCenter, 0.5, alpha);
+
+                    }
+                    // "Buddhabrot"
+                    else if (style == 3) {
+                        float tnum = FracDraw->getZtouchsingle(ix) * 15.f;
+                        float colorval = normalCurve(-250.f, 250.f, tnum, -0.6f);
+                        float alpha = tnum == 0 ? 0 : 30 + tnum;// normalCurve(0.f, 100.f, tnum * 2.f, -0.5f);
+                        pic->setHue(ix, 130 + colorval, 0.8f, 0.5f, alpha);
+                    }
+                    pic->MakeColor(ix);
+                }
+                ++frames;
+            }
+            //if done generating, do nice color shift
+            else if (frames > iteras / itergroup && style > 1) {
+                Fracking->TESTOUCH = FracDraw->getKEscapeFraction((drawboxX / 2) * (drawboxY / 2));
+
+                for (int ix = 0; ix < drawboxX * drawboxY; ++ix) {
+                    //incrementPhase(1.f, 2000.f, &pic->Khues[ix * 4 + 0], 360.f);
+                    pic->shiftHue(ix, colorincr);
+                    pic->MakeColor(ix);
+                }
+                
+            }
+            //if (Fracking->quality == 3) pic->AverageImage();
+            //transfer image to screen
             nvgBeginPath(args.vg);
             NVGpaint picPaint = nvgImagePattern(args.vg, 0, 0, drawboxX, drawboxY, 0.0f, pictureColor, 1.0f);
             nvgRect(args.vg, 0, 0, drawboxX, drawboxY);
             nvgFillPaint(args.vg, picPaint);
             nvgFill(args.vg);
-            //pic->Empty();
 
 
             /*the lines of the sequence itself, and tracking square*/
@@ -1228,6 +1253,7 @@ struct FracWidget : Widget {
             float Crectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->Cx);
             float Crecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->Cyi);
 
+            //small square
             nvgRect(args.vg, Crectx - 2, Crecty - 2, 4, 4);
             nvgFill(args.vg);
             for (int d = Fracking->seqstart; d < (Fracking->seqsize + Fracking->seqstart); ++d) {
@@ -1236,7 +1262,7 @@ struct FracWidget : Widget {
                 float recty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[draw]);
                 float Nrectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[abs(draw - 1)]);
                 float Nrecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[abs(draw - 1)]);
-                
+                //lines of sequence
                 nvgBeginPath(args.vg);
                 nvgMoveTo(args.vg, Nrectx, Nrecty);
                 nvgLineTo(args.vg, rectx, recty);
@@ -1249,7 +1275,7 @@ struct FracWidget : Widget {
             nvgBeginPath(args.vg);
             float Seqrectx = lerp(0.f, (float)drawboxX, xdrawMin, xdrawMax, Fracking->xCoord[(Fracking->Xstep - 1) > 0 ? Fracking->Xstep - 1 : 0]);
             float Seqrecty = lerp(0.f, (float)drawboxY, ydrawMin, ydrawMax, Fracking->yCoord[(Fracking->Ystep - 1) > 0 ? Fracking->Ystep - 1 : 0]);
-          
+            //small square less opaque for current sequence step
             nvgRect(args.vg, Seqrectx - 3, Seqrecty - 3, 6, 6);
             nvgFill(args.vg);
         }
@@ -1339,12 +1365,13 @@ struct PoppyWidget : ModuleWidget {
         addOutput(createOutput<PurplePort>(Vec(232, 331), module, PoppyModule::X_TRIG_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(267, 331), module, PoppyModule::Y_TRIG_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(197, 331), module, PoppyModule::AUX_OUTPUT));
+
+        addOutput(createOutput<PurplePort>(Vec(30, 7), module, PoppyModule::TEST));
         
         if (module) {
             FracWidgetBuffer* FracBuffer = new FracWidgetBuffer(module);
             addChild(FracBuffer);
-            FracWidget* myWidget = new FracWidget(module, Vec(70, 30));
-            myWidget->setSize(Vec(160, 120));
+            FracWidget* myWidget = new FracWidget(module, Vec(70, 30), Vec(160, 120));
             
             FracBuffer->addChild(myWidget);         
 

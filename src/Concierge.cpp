@@ -1,5 +1,6 @@
 #include "plugin.hpp"
 #include <atomic>
+#include "Lydapi/LydTime.h"
 
 #define MODULE_NAME ClockModule
 #define PANEL "Clock_panel.svg"
@@ -16,7 +17,7 @@ static rack::simd::float_4 One{ 1.f };
 //clock class using Double precision, cuz wow it actually makes a difference here
 class ClockTree {
 private:
-    const double _2PIto1 = 0.1591549431f;//multiply 2pi based phase by this to rescale to 0-1
+    const double _2PIto1 = 0.1591549431;//multiply 2pi based phase by this to rescale to 0-1
 
     enum FreeClocks{
         THRU_QUARTER,
@@ -44,10 +45,10 @@ private:
         NUM_MB_CLOCKS
     };
 
-    double fundclockFreq = 0.f;
-    double fundclockPhase = 0.f;
+    double fundclockFreq = 0.;
+    double fundclockPhase = 0.;
     bool fundphaseReset = false;
-    double Swing = 0.f;
+    double Swing = 0.;
     double pulseWidth[NUM_CLOCKS]; // first 6 reused in measure clocks, its global and they're all the same anyway 
 
     int clocksTick[NUM_CLOCKS];
@@ -59,23 +60,25 @@ private:
     double measBphase[NUM_MB_CLOCKS];
     bool measBset[NUM_MB_CLOCKS];
 
-    double refBPS = 2.f; // frequency calculation gives and takes Hz- 2Hz = 120 bpm.
-    double BPMparvolt = 0.f;
-    double BPMinvolt = 0.f;
+    double refBPS = 2.; // frequency calculation gives and takes Hz- 2Hz = 120 bpm.
+    double BPMparvolt = 0.;
+    double BPMinvolt = 0.;
 
     bool isextConnect = false;
-    double externalclockFreq = 0.f;
+    bool isBPMcvConnect = false;
+    double externalClockFreq = 0.;
+    double internalClockFreq = 0.;
 
-    int timeSignatureBeats = 4.f;
-    int timeSignatureQuaver = 4.f;
+    int timeSignatureBeats = 4.;
+    int timeSignatureQuaver = 4.;
 
     std::vector<double> averageTick; // last 4 'time-between-pulse's to average out
     rack::dsp::BooleanTrigger clockphaseResets[NUM_CLOCKS]; // 0 is base clock
     rack::dsp::BooleanTrigger measBResets[NUM_MB_CLOCKS]; //measurebound triggers
     rack::dsp::PulseGenerator outputPulses[NUM_CLOCKS]; // 0 is base clock
     rack::dsp::PulseGenerator measBPulses[NUM_MB_CLOCKS]; //measurebound pulses
-    rack::dsp::Timer externalTimer;
-
+    rack::dsp::TTimer<double> externalTimer;
+    LydD::Time::AverageTimer<double, 2> extClockTimer;
     void clockAdvance(int which) {
         ++clocksTick[which];
         clocksTick[which] %= 2520;  //2520 divisible by 1 - 9
@@ -85,29 +88,32 @@ private:
 public:
 
     ClockTree() {
-        externalTimer.reset();
+       // externalTimer.reset();
+        extClockTimer.reset();
         for (int bp = 0; bp < NUM_CLOCKS; ++bp) {
             clockphaseResets[bp].reset();
             outputPulses[bp].reset();
             if (bp < 4) {
-                averageTick.push_back(0.5f); //0.5s between pulse = 2Hz = 120bpm.
+                averageTick.push_back(0.5); //0.5s between pulse = 2Hz = 120bpm.
             }
-            pulseWidth[bp] = 0.5f;
+            pulseWidth[bp] = 0.5;
         }
     }
     void setBPMparameter(double parameter) {
         BPMparvolt = parameter;
     }
     void setBPMinput(bool isconnect, double voltage) {
-        BPMinvolt = (isconnect) ? voltage : 0.f;
+        isBPMcvConnect = isconnect;
+        BPMinvolt = (isBPMcvConnect) ? voltage : 0.;
     }
     void setfundFreq () {
-        double internalBPM = BPMparvolt + BPMinvolt;
+        double internalBPM = isBPMcvConnect ? BPMinvolt : BPMparvolt;
+        internalClockFreq = VoltToFreq(internalBPM, 0., refBPS);
         if (!isextConnect) {
-            clocksFreq[THRU_QUARTER] = VoltToFreq(internalBPM, 0.f, refBPS);
+            clocksFreq[THRU_QUARTER] = internalClockFreq;
         }
         else {
-            clocksFreq[THRU_QUARTER] = externalclockFreq;
+            clocksFreq[THRU_QUARTER] = externalClockFreq;
         }
     }
     void setSwing(double swing) {
@@ -118,7 +124,15 @@ public:
             pulseWidth[i] = PWM;
         }
     }
-
+    float getExtTime() {
+        return this->extClockTimer.storedTime[0];
+    }
+    double getExtClockFreq() {
+        return this->externalClockFreq;
+    }
+    double getIntClockFreq() {
+        return this->internalClockFreq;
+    }
     void TimeSignature(double beats, double quaver) {
         double tempB = timeSignatureBeats;
         double tempQ = timeSignatureQuaver;
@@ -131,16 +145,18 @@ public:
         for (int i = 0; i < NUM_CLOCKS; ++i) {
             phaseSet[i] = false;
             clocksTick[i] = -1;
-            clocksPhase[i] = 0.f;
+            clocksPhase[i] = 0.;
             clockphaseResets[i].reset();
             outputPulses[i].reset();
         }
         for (int i = 0; i < NUM_MB_CLOCKS; ++i) {
             measBset[i] = false;
-            measBphase[i] = 0.f;
+            measBphase[i] = 0.;
             measBResets[i].reset();
             measBPulses[i].reset();
         }
+        externalTimer.reset();
+        extClockTimer.reset();
     }
 
     void phaseCProcess(double* fdst, double* fsrc, double div, double* phdst, bool* psetdst, rack::dsp::BooleanTrigger* rst) {
@@ -157,51 +173,52 @@ public:
     void phaseAccum(double samplerate) {
 
         if (!isextConnect) {
-            bool internalTick = clocksPhase[THRU_QUARTER] > 0.f && clocksPhase[THRU_QUARTER] < 1.f;
+            bool internalTick = clocksPhase[THRU_QUARTER] > 0. && clocksPhase[THRU_QUARTER] < 1.;
             phaseSet[THRU_QUARTER] = clockphaseResets[THRU_QUARTER].process(internalTick);
             externalTimer.reset();
+            extClockTimer.reset();
         }
    
         double quavnorm = clocksPhase[THRU_QUARTER] * _2PIto1; //scale to 1
         double quavcurve = lerp(1., quavnorm, 0., 1., Swing); //curve, quasi exp->log
 
         double swingnorm = quavnorm * quavcurve;//this should make the point at which this copy of phase crosses 0.5(or whatever) shift in time
-        bool offbeattick = (swingnorm >= 0.5f) && (swingnorm < 0.6f);// clocksPhase[THRU_QUARTER] > (_PI + Swing);
-        tapCProcess(&clocksFreq[OFFBEAT_QUARTER], &clocksFreq[THRU_QUARTER], 1.f, 
+        bool offbeattick = (swingnorm >= 0.5) && (swingnorm < 0.6);// clocksPhase[THRU_QUARTER] > (_PI + Swing);
+        tapCProcess(&clocksFreq[OFFBEAT_QUARTER], &clocksFreq[THRU_QUARTER], 1., 
             offbeattick, &phaseSet[OFFBEAT_QUARTER], &clockphaseResets[OFFBEAT_QUARTER]);
 
         //Generated multiples and measures
 
-        double measurelength = (timeSignatureBeats * (timeSignatureQuaver / 4.f));
+        double measurelength = (timeSignatureBeats * (timeSignatureQuaver / 4.));
         int signote = THRU_QUARTER;
         if (timeSignatureQuaver < 4) {
             signote = EIGHTH;
-            measurelength = measurelength * 2.f;
+            measurelength = measurelength * 2.;
         }
 
         phaseCProcess(&clocksFreq[MEASURE], &clocksFreq[signote], measurelength,
                     &clocksPhase[MEASURE], &phaseSet[MEASURE], &clockphaseResets[MEASURE]);
 
 
-        bool eighthtick = (swingnorm > 0.f && swingnorm < 0.1f) || (offbeattick);
-        tapCProcess(&clocksFreq[EIGHTH], &clocksFreq[THRU_QUARTER], 0.5f,
+        bool eighthtick = (swingnorm > 0. && swingnorm < 0.1) || (offbeattick);
+        tapCProcess(&clocksFreq[EIGHTH], &clocksFreq[THRU_QUARTER], 0.5,
             eighthtick, &phaseSet[EIGHTH], &clockphaseResets[EIGHTH]);
 
         double eighnorm = clocksPhase[EIGHTH] * _2PIto1;
         double eighcurve = lerp(1., eighnorm, 0., 1., Swing);
         double swingeigh = eighnorm * eighcurve;
-        bool betw16 = (swingeigh >= 0.5f) && (swingeigh < 0.6f);
-        bool sixteentick = ((swingeigh >= 0.f) && (swingeigh < 0.1f)) || betw16;
-        tapCProcess(&clocksFreq[SIXTEENTH], &clocksFreq[EIGHTH], 0.5f,
+        bool betw16 = (swingeigh >= 0.5) && (swingeigh < 0.6);
+        bool sixteentick = ((swingeigh >= 0.) && (swingeigh < 0.1)) || betw16;
+        tapCProcess(&clocksFreq[SIXTEENTH], &clocksFreq[EIGHTH], 0.5,
             sixteentick, &phaseSet[SIXTEENTH], &clockphaseResets[SIXTEENTH]);
 
-        phaseCProcess(&clocksFreq[DOTTED_EIGHTH], &clocksFreq[THRU_QUARTER], 0.75f,
+        phaseCProcess(&clocksFreq[DOTTED_EIGHTH], &clocksFreq[THRU_QUARTER], 0.75,
             &clocksPhase[DOTTED_EIGHTH], &phaseSet[DOTTED_EIGHTH], &clockphaseResets[DOTTED_EIGHTH]);
        
-        phaseCProcess(&clocksFreq[TRIPLET_BEATS], &clocksFreq[signote], 0.666666666667f,
+        phaseCProcess(&clocksFreq[TRIPLET_BEATS], &clocksFreq[signote], 0.666666666667,
             &clocksPhase[TRIPLET_BEATS], &phaseSet[TRIPLET_BEATS], &clockphaseResets[TRIPLET_BEATS]);
 
-        phaseCProcess(&clocksFreq[TRIPLET_MEASURE], &clocksFreq[MEASURE], 0.333333333333f,
+        phaseCProcess(&clocksFreq[TRIPLET_MEASURE], &clocksFreq[MEASURE], 0.333333333333,
             &clocksPhase[TRIPLET_MEASURE], &phaseSet[TRIPLET_MEASURE], &clockphaseResets[TRIPLET_MEASURE]);
        
         //if even time signature, dont offset, but if odd offset up by one, e.g. 3-2 in 5/4 is more common than 2-3
@@ -214,7 +231,7 @@ public:
         phaseSet[MID_MEASURE] = clockphaseResets[MID_MEASURE].process(midmeasuretick);
         
         bool fourmeasuretick = clocksTick[MEASURE] % 4 == 0;
-        tapCProcess(&clocksFreq[FOUR_MEAS], &clocksFreq[MEASURE], 4.f,
+        tapCProcess(&clocksFreq[FOUR_MEAS], &clocksFreq[MEASURE], 4.,
             fourmeasuretick, &phaseSet[FOUR_MEAS], &clockphaseResets[FOUR_MEAS]);
 
         bool beatsmeasuretick = ((clocksTick[MEASURE] % (int)timeSignatureBeats + 1) + (clocksPhase[MEASURE] / _2_PI)) >= timeSignatureBeats;
@@ -222,7 +239,7 @@ public:
             beatsmeasuretick, &phaseSet[BEATS_MEAS], &clockphaseResets[BEATS_MEAS]);
 
         bool sixteenmeasuretick = clocksTick[FOUR_MEAS] % 4 == 0;
-        tapCProcess(&clocksFreq[SIXTEEN_MEAS], &clocksFreq[FOUR_MEAS], 4.f,
+        tapCProcess(&clocksFreq[SIXTEEN_MEAS], &clocksFreq[FOUR_MEAS], 4.,
             sixteenmeasuretick, &phaseSet[SIXTEEN_MEAS], &clockphaseResets[SIXTEEN_MEAS]);
 
         double bbq = timeSignatureBeats * timeSignatureQuaver;
@@ -235,7 +252,7 @@ public:
         for (int i = 0; i < NUM_CLOCKS; ++i) {
             
             if (phaseSet[i]) {
-                clocksPhase[i] = 0.f;
+                clocksPhase[i] = 0.;
                 clockAdvance(i);
             }
             incrementPhase(clocksFreq[i], samplerate, &clocksPhase[i]);
@@ -245,24 +262,24 @@ public:
         
 
         //Measure Bound synchopations
-        phaseCProcess(&measBfreq[B_DOTTED_SIXTEENTH], &clocksFreq[EIGHTH], 0.75f,
+        phaseCProcess(&measBfreq[B_DOTTED_SIXTEENTH], &clocksFreq[EIGHTH], 0.75,
             &measBphase[B_DOTTED_SIXTEENTH], &measBset[B_DOTTED_SIXTEENTH], &measBResets[B_DOTTED_SIXTEENTH]);
 
-        phaseCProcess(&measBfreq[B_DOTTED_EIGHTH], &clocksFreq[DOTTED_EIGHTH], 1.f,
+        phaseCProcess(&measBfreq[B_DOTTED_EIGHTH], &clocksFreq[DOTTED_EIGHTH], 1.,
             &measBphase[B_DOTTED_EIGHTH], &measBset[B_DOTTED_EIGHTH], &measBResets[B_DOTTED_EIGHTH]);
 
-        phaseCProcess(&measBfreq[B_TRIPLET_QUARTER], &clocksFreq[TRIPLET_BEATS], 1.f,
+        phaseCProcess(&measBfreq[B_TRIPLET_QUARTER], &clocksFreq[TRIPLET_BEATS], 1.,
             &measBphase[B_TRIPLET_QUARTER], &measBset[B_TRIPLET_QUARTER], &measBResets[B_TRIPLET_QUARTER]);
 
-        phaseCProcess(&measBfreq[B_DOTTED_QUARTER], &clocksFreq[THRU_QUARTER], (2.f * 0.75f),
+        phaseCProcess(&measBfreq[B_DOTTED_QUARTER], &clocksFreq[THRU_QUARTER], (2. * 0.75),
             &measBphase[B_DOTTED_QUARTER], &measBset[B_DOTTED_QUARTER], &measBResets[B_DOTTED_QUARTER]);
 
-        phaseCProcess(&measBfreq[B_HALF_NOTE], &clocksFreq[THRU_QUARTER], 2.f,
+        phaseCProcess(&measBfreq[B_HALF_NOTE], &clocksFreq[THRU_QUARTER], 2.,
             &measBphase[B_HALF_NOTE], &measBset[B_HALF_NOTE], &measBResets[B_HALF_NOTE]);
 
         for (int i = 0; i < NUM_MB_CLOCKS; ++i) {
             if (measBset[i] || phaseSet[8]) {
-                measBphase[i] = 0.f;
+                measBphase[i] = 0.;
             }
 
             incrementPhase(measBfreq[i], samplerate, &measBphase[i]);
@@ -273,16 +290,18 @@ public:
 
     void externalBPMgen(double sampletime, bool connected, bool running, double inputgate) {
         isextConnect = connected;
-        if (!running) {
+        /*if (!running) {
             externalTimer.reset();
             return;
-        }
+        }*/
         //also only update average while clock is actually running so it doesnt count downtime
-        if (isextConnect && running) {
-            externalTimer.process(sampletime);
-            bool externalTick = inputgate >= 1.f;
+        if (isextConnect ) {
+            //externalTimer.process(sampletime);
+            bool externalTick = inputgate >= 1.;
             phaseSet[THRU_QUARTER] = clockphaseResets[THRU_QUARTER].process(externalTick);
-            if (phaseSet[THRU_QUARTER]) {
+            extClockTimer.store(externalTick, sampletime);
+            externalClockFreq = 1. / extClockTimer.average();
+            /*if (phaseSet[THRU_QUARTER]) {
                 double timeCapture = externalTimer.getTime();
                 averageTick.push_back(timeCapture);
                 if (averageTick.size() > 4) {
@@ -291,13 +310,16 @@ public:
                 externalTimer.reset();
             }
             if ((int)averageTick.size() > 0) {
-                double runavg = 0.f;
+                double runavg = 0.;
                 for (int i = 0; i < (int)averageTick.size(); ++i) {
                     runavg += averageTick[i];
                 }
-                runavg /= (double)averageTick.size();
-                externalclockFreq = 1.f / runavg; // running avg of 4 clock pulses in Hz
-            }
+                runavg /= (double)averageTick.size(); //avg in seconds
+                externalClockFreq = 1. / runavg; // running avg of 4 clock pulses in Hz
+            }*/
+
+
+
 
         }
     }
