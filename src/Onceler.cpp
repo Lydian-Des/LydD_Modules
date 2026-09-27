@@ -441,19 +441,23 @@ struct OnceWidget : OncelerDisplay {
     int flag = 0;
     void step() override {
         fgColor = BLOO;
-        int cutnum = module->maxChops[flag];
-        int waitnum = module->waitTicks[flag];
-        if (cutnum >= 10 || waitnum >= 10) {
-            fontSize = 12;
-        }
-        else {
-            fontSize = 16;
-        }
-        if (module->stumpOut[flag]) {
-            fgColor = rack::color::GREEN;
-        }
-        else if (module->chops[flag] > cutnum) {
-            fgColor = rack::color::MAGENTA;
+        int cutnum = 4;
+        int waitnum = 1;
+        if (module) {
+            cutnum = module->maxChops[flag];
+            waitnum = module->waitTicks[flag];
+            if (cutnum >= 10 || waitnum >= 10) {
+                fontSize = 12;
+            }
+            else {
+                fontSize = 16;
+            }
+            if (module->stumpOut[flag]) {
+                fgColor = rack::color::GREEN;
+            }
+            else if (module->chops[flag] > cutnum) {
+                fgColor = rack::color::MAGENTA;
+            }
         }
         text = rack::string::f("%d|%d", cutnum, waitnum);
     }
@@ -524,35 +528,36 @@ struct OncelerPanelWidget : ModuleWidget {
 
         /*addOutput(createOutput<PurplePort>(Vec(60, 360), module, OncelerModule::DEBUG_OUT1));
         addOutput(createOutput<PurplePort>(Vec(90, 360), module, OncelerModule::DEBUG_OUT2));*/
+        
+        OnceWidget* O1Widget = createWidget<OnceWidget>((Vec(digitX, digitY)));
+        O1Widget->box.size = (Vec(36, 26));
+        O1Widget->textPos = (Vec(35, 22));
+        O1Widget->flag = 0;
+        O1Widget->module = module;
+        addChild(O1Widget);
+
+        OnceWidget* O2Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY))));
+        O2Widget->box.size = (Vec(36, 26));
+        O2Widget->textPos = (Vec(35, 22));
+        O2Widget->flag = 1;
+        O2Widget->module = module;
+        addChild(O2Widget);
+
+        OnceWidget* O3Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY * 2))));
+        O3Widget->box.size = (Vec(36, 26));
+        O3Widget->textPos = (Vec(35, 22));
+        O3Widget->flag = 2;
+        O3Widget->module = module;
+        addChild(O3Widget);
+
+        OnceWidget* O4Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY * 3))));
+        O4Widget->box.size = (Vec(36, 26));
+        O4Widget->textPos = (Vec(35, 22));
+        O4Widget->flag = 3;
+        O4Widget->module = module;
+        addChild(O4Widget);
+
         if (module) {
-
-            OnceWidget* O1Widget = createWidget<OnceWidget>((Vec(digitX, digitY)));
-            O1Widget->box.size = (Vec(36, 26));
-            O1Widget->textPos = (Vec(35, 22));
-            O1Widget->flag = 0;
-            O1Widget->module = module;
-            addChild(O1Widget);
-
-            OnceWidget* O2Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY))));
-            O2Widget->box.size = (Vec(36, 26));
-            O2Widget->textPos = (Vec(35, 22));
-            O2Widget->flag = 1;
-            O2Widget->module = module;
-            addChild(O2Widget);
-
-            OnceWidget* O3Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY * 2))));
-            O3Widget->box.size = (Vec(36, 26));
-            O3Widget->textPos = (Vec(35, 22));
-            O3Widget->flag = 2;
-            O3Widget->module = module;
-            addChild(O3Widget);
-
-            OnceWidget* O4Widget = createWidget<OnceWidget>((Vec(digitX, digitY + (distY * 3))));
-            O4Widget->box.size = (Vec(36, 26));
-            O4Widget->textPos = (Vec(35, 22));
-            O4Widget->flag = 3;
-            O4Widget->module = module;
-            addChild(O4Widget);
 
             //must be called 'logoPos'for all modules
             Vec logoPos = Vec(((15.f * HP) / 3.5f) - 12.5, 363.f);

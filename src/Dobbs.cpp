@@ -1,5 +1,5 @@
 #include "plugin.hpp"
-
+#include "Lydapi/LydEnvelope.h"
 #define MODULE_NAME DobbsModule
 #define PANEL "Dobbs_panel.svg"
 #define HP 12
@@ -8,120 +8,9 @@ using namespace LydD;
 
 static const int maxPolyphony = 1;
 
-class Envelope {
-private:
-    rack::dsp::BooleanTrigger _trigger;
-    rack::dsp::BooleanTrigger _EOC;
-    rack::dsp::PulseGenerator _EOCPulse;
-    rack::dsp::Timer _totalTime;
-public:
-    float Atime;
-    float Rtime;
-    float Aphase;
-    float Rphase;
-    float samplePhase;
-    float TotalTime;
-    float Shape;
-    bool Attacking;
-    bool Sustain;
-    bool Sustaining;
-    bool EOC;
-    
-    Envelope() {
-        Atime = 0.1f;
-        Rtime = 0.2f;
-        Aphase = 0.f;
-        Rphase = 0.f;
-        samplePhase = 0.f;
-        Attacking = false;
-        Sustain = false;
-        Sustaining = false;
-        EOC = false;
-        _trigger.reset();
-        _totalTime.reset();
-    }
-
-    void setAttackRelease(bool timesize, float a, float r, bool sus) {
-        float multiplier = (timesize) ? 0.5 : 12.f;
-        this->Atime = a * a * multiplier;
-        this->Rtime = r * r * multiplier;
-        this->Sustain = sus;
-    }
-    void setShape(float shape) {
-        this->Shape = shape;
-    }
-    //build in retrigger smoothing
-    void Trigger(bool gate, float sampletime, bool* istrig = nullptr) {
-        bool triggered = this->_trigger.process(gate);
-        this->Sustaining = (this->Sustain) ? gate : false;
-        //capture total time between triggers
-        TotalTime = _totalTime.process(sampletime);
-        if (triggered) {
-            //retrigger
-            if (this->samplePhase != 0.f) {
-                this->samplePhase = (this->Attacking) ? this->Aphase * this->Atime : (-this->Rphase + 1.f) * this->Atime;
-            }    
-            this->Attacking = true;
-            _totalTime.reset();
-        }
-        //leave it to comsumer to set back to false
-        if (istrig) *istrig |= triggered;
-        return;
-    }
-    void triggerCompanion(Envelope* companion, float delaytime, float sampletime) {
-        float comphase = this->TotalTime;
-        //float totalphase = (this->Attacking) ? this->Aphase : this->Rphase + 1.f;
-        float trigcompanion = (comphase >= delaytime) || this->Sustaining ? 1.f : 0.f;
-        companion->Trigger(trigcompanion, sampletime);
-    }
-    void AttackPhase(float* Value, float sampletime) {
-        if (this->Attacking) {
-            float shapemod = lerp(1.f, *Value, 0.f, 1.f, this->Shape);
-            
-            this->Aphase = this->samplePhase / this->Atime;
-            *Value = this->Aphase * shapemod;
-            if (*Value >= 1.f) {
-                *Value = 1.f;
-                this->Attacking = false;
-                this->Aphase = 0.f;
-                this->samplePhase = 0.f;
-                return;
-            }
-            this->samplePhase += sampletime;
-        }
-        return;
-    }
-    void ReleasePhase(float* Value, float sampletime) {
-        this->EOC = _EOC.process(*Value <= 0.01f);
-        if (this->Sustaining) return;
-        if (!this->Attacking && *Value > 0.f ) {
-            float shapemod = lerp(1.f, *Value, 0.f, 1.f, this->Shape);
-            
-            this->Rphase = this->samplePhase / this->Rtime;
-            *Value = (-this->Rphase + 1.f) * shapemod;
-            
-            if (*Value <= 0.f) {
-                *Value = 0.f;
-                this->Rphase = 0.f;
-                this->samplePhase = 0.f;
-                return;
-            }
-            this->samplePhase += sampletime;
-        }
-        return;
-    }
-     
-    bool isEOC(float sampletime) {
-        _EOCPulse.process(sampletime);
-        if (this->EOC) {
-            _EOCPulse.trigger(0.08f);
-        }
-        return _EOCPulse.isHigh();
-    }
-};
-
 struct DobbsModule : Module
 {
+    #include "Theme/PanelVars.h"
     enum ParamIds {
         ENUMS(AMAIN_PARAM, 2),
         ENUMS(ACOMP_PARAM, 2),
@@ -165,10 +54,10 @@ struct DobbsModule : Module
         NUM_LIGHTS
     };
 
-    Envelope ENVmain[2];
-    Envelope ENVcomp[2];
+    LydD::Envelope::Couplable_Envelope<float> Main[2];
+    LydD::Envelope::Couplable_Envelope<float> Couple[2];
 
-    #include "Theme/PanelVars.h"
+
 
     DobbsModule() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -231,7 +120,8 @@ struct DobbsModule : Module
             eoc2 += side;
             configOutput(EOCCOMP_OUTPUT + i, eoc2);
         }
-
+        Main[0].set_child(&Couple[0]);
+        Main[1].set_child(&Couple[1]);
 
         #include "Theme/setDefaultInit.h"
     }
@@ -240,31 +130,33 @@ struct DobbsModule : Module
     int currentBanks = 1;
     int loopCounter = 0;
     float Gates[2] = { 0.f, 0.f };
-    bool isTriggered[2] = { false, false };
-    float EnvelopeMain[2] = { 0.f, 0.f };
-    float EnvelopeCompanion[2] = { 0.f, 0.f };
-    float ASRset[2] = { false, false };
-    float ASRunset[2] = { false, false };
-    float spdFsetM[2] = { false, false };
-    float spdFresetM[2] = { false, false };
-    float spdFsetC[2] = { false, false };
-    float spdFresetC[2] = {false, false};
     float Velocity[2] = { 0.f, 0.f };
-    bool isVelocity = false;
+    float Main_Env[2] = { 0.f, 0.f };
+    float Couple_Env[2] = { 0.f, 0.f };
+    bool ASR_set[2] = { false, false };
+    bool ASR_reset[2] = { false, false };
+    bool spdMain_set[2] = { false, false };
+    bool spdMain_reset[2] = { false, false };
+    bool spdCoup_set[2] = { false, false };
+    bool spdCoup_reset[2] = {false, false};
+    bool isTriggered[2] = { false, false };
     bool isinGate[2] = { false, false };
+    bool isinAttackM[2] = { false, false };
+    bool isinAttackC[2] = { false, false };
+    bool isinReleaseM[2] = { false, false };
+    bool isinReleaseC[2] = { false, false };
+    bool isinShape[2] = { false, false };
+    bool isinOffset[2] = { false, false };
+    bool auto_velocity_mode = false;
 
     void process(const ProcessArgs& args) override {
 
-      
-    
         if (loopCounter % 4 == 0) {
-
-            setParams(args);
-          
+            setParams(args);         
         }
         generateOutput(args);
 
-        if (loopCounter % 4 == 0) {
+        if (loopCounter % 8 == 0) {
             doLights(args);
         }
         
@@ -275,63 +167,91 @@ struct DobbsModule : Module
     }
 
     void setParams(const ProcessArgs& args) {
-        for (int o = ENVMAIN_OUTPUT + 0; o != NUM_OUTPUTS; ++o) {
-            outputs[o].setChannels(1);
-        }
-
 
         for (int i = 0; i < 2; ++i) {
-            latchButton(params[MODE_BUTTON_PARAM + i].value, &ASRset[i], &ASRunset[i]);
-            latchButton(params[SPEED_FMAIN_BUTTON_PARAM + i].value, &spdFsetM[i], &spdFresetM[i]);
-            latchButton(params[SPEED_FCOMP_BUTTON_PARAM + i].value, &spdFsetC[i], &spdFresetC[i]);
+            latchButton(params[MODE_BUTTON_PARAM + i].value, &ASR_set[i], &ASR_reset[i]);
+            latchButton(params[SPEED_FMAIN_BUTTON_PARAM + i].value, &spdMain_set[i], &spdMain_reset[i]);
+            latchButton(params[SPEED_FCOMP_BUTTON_PARAM + i].value, &spdCoup_set[i], &spdCoup_reset[i]);
             isinGate[i] = inputs[GATE_INPUT + i].isConnected();
-            
+            isinAttackM[i] = inputs[AMAIN_INPUT + i].isConnected();
+            isinAttackC[i] = inputs[ACOMP_INPUT + i].isConnected();
+            isinReleaseM[i] = inputs[RMAIN_INPUT + i].isConnected();
+            isinReleaseC[i] = inputs[RCOMP_INPUT + i].isConnected();
+            isinShape[i] = inputs[SHAPE_INPUT + i].isConnected();
+            isinOffset[i] = inputs[DELAY_INPUT + i].isConnected();
+
+            Main[i].set_asr_mode(ASR_set[i]);
+            Couple[i].set_asr_mode(ASR_set[i]);
         }
         
     }
 
     void generateOutput(const ProcessArgs& args) {
         for (int i = 0; i < 2; ++i) {
-            float attacktime1 = rack::math::clamp(params[AMAIN_PARAM + i].value + ((inputs[AMAIN_INPUT + i].isConnected()) ? (inputs[AMAIN_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.0001f, 1.f);
-            float releasetime1 = rack::math::clamp(params[RMAIN_PARAM + i].value + ((inputs[RMAIN_INPUT + i].isConnected()) ? (inputs[RMAIN_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.0001f, 1.f);
-            float attacktime2 = rack::math::clamp(params[ACOMP_PARAM + i].value + ((inputs[ACOMP_INPUT + i].isConnected()) ? (inputs[ACOMP_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.0001f, 1.f);
-            float releasetime2 = rack::math::clamp(params[RCOMP_PARAM + i].value + ((inputs[RCOMP_INPUT + i].isConnected()) ? (inputs[RCOMP_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.0001f, 1.f);
-            float shape = rack::math::clamp(params[SHAPE_PARAM + i].value * ((inputs[SHAPE_INPUT + i].isConnected()) ? (inputs[SHAPE_INPUT + i].getVoltage(0) / 5.f) : 1.f), -1.f, 1.f);
-            float delay = rack::math::clamp(params[DELAY_PARAM + i].value + abs((inputs[DELAY_INPUT + i].isConnected()) ? (inputs[DELAY_INPUT + i].getVoltage(0) / 5.f) : 0.f), 0.001f, 1.f);
             
+
+            float attackM = params[AMAIN_PARAM + i].value;
+            attackM += (isinAttackM[i]) ? (inputs[AMAIN_INPUT + i].getVoltage(0) / 5.f) : 0.f;
+            attackM = rack::math::clamp(attackM, 0.0001f, 1.f);
+            float releaseM = params[RMAIN_PARAM + i].value; 
+            releaseM += (isinReleaseM[i]) ? (inputs[RMAIN_INPUT + i].getVoltage(0) / 5.f) : 0.f;
+            releaseM = rack::math::clamp(releaseM, 0.0001f, 1.f);
+            float attackC = params[ACOMP_PARAM + i].value;
+            attackC += (isinAttackC[i]) ? (inputs[ACOMP_INPUT + i].getVoltage(0) / 5.f) : 0.f;
+            attackC = rack::math::clamp(attackC, 0.0001f, 1.f);
+            float releaseC = params[RCOMP_PARAM + i].value;
+            releaseC += (isinReleaseC[i]) ? (inputs[RCOMP_INPUT + i].getVoltage(0) / 5.f) : 0.f;
+            releaseC = rack::math::clamp(releaseC, 0.0001f, 1.f);
+
+            float fastM = spdMain_set[i] ? 0.5f : 12.f;
+            float fastC = spdCoup_set[i] ? 0.5f : 12.f;
+            attackM = (attackM * attackM) * fastM;
+            releaseM = (releaseM * releaseM) * fastM;
+            attackC = (attackC * attackC) * fastC;
+            releaseC = (releaseC * releaseC) * fastC;
+
+
+            Main[i].setAttackRelease(attackM, releaseM);
+            Couple[i].setAttackRelease(attackC, releaseC);
+
+            float delay = params[DELAY_PARAM + i].value;
+            delay += (isinOffset[i]) ? abs(inputs[DELAY_INPUT + i].getVoltage(0) / 5.f) : 0.f;
+            delay = rack::math::clamp(delay, 0.001f, 1.f);
+
+            Couple[i].set_delay_from_parent(delay);
+
             float gateprev = Gates[i];
             Gates[i] = (isinGate[i]) ? inputs[GATE_INPUT + i].getVoltage(0) : 0.f;
-            
-            ENVmain[i].setAttackRelease(spdFsetM[i], attacktime1, releasetime1, ASRset[i]);
-            ENVcomp[i].setAttackRelease(spdFsetC[i], attacktime2, releasetime2, ASRset[i]);
-            ENVmain[i].setShape(shape);
-            ENVcomp[i].setShape(shape);
             bool high = Gates[i] > 0.5f;
-            ENVmain[i].Trigger(high, args.sampleTime, &isTriggered[i]);
-            ENVmain[i].triggerCompanion(&ENVcomp[i], delay, args.sampleTime);
-            if (isTriggered[i]) {
+            Main[i].trigger(high, args.sampleTime);
+            Main[i].process(args.sampleTime);
+
+            float shape = params[SHAPE_PARAM + i].value;
+            shape *= (isinShape[i]) ? (inputs[SHAPE_INPUT + i].getVoltage(0) / 5.f) : 1.f;
+            shape = rack::math::clamp(shape, -0.99f, 0.99f);
+
+            Main_Env[i] = Main[i].getEnvelope();
+            Main_Env[i] = normalCurve(-1.f, 1.f, Main_Env[i], shape);
+            Couple_Env[i] = Couple[i].getEnvelope();
+            Couple_Env[i] = normalCurve(-1.f, 1.f, Couple_Env[i], shape);
+            if (Main[i].is_attacking()) {
                 //if gates have some slew, wait til they reach their maximum to stop assigning velocity
-                if (gateprev >= Gates[i]) {
+                if (gateprev < Gates[i]) {
                     Velocity[i] = Gates[i];
-                    isTriggered[i] = false;
                 }
-
             }
+            //once sustaining, allow gate voltage to directly affect volume
+            else if (Main[i].is_sustaining()) {
+                Velocity[i] = Gates[i];
+            }
+            float peak = auto_velocity_mode ? Velocity[i] : 10.f;
+            outputs[ENVMAIN_OUTPUT + i].setVoltage(Main_Env[i] * peak, 0);
+            outputs[ENVCOMP_OUTPUT + i].setVoltage(Couple_Env[i] * peak, 0);
 
-            ENVmain[i].AttackPhase(&EnvelopeMain[i], args.sampleTime);
-            ENVmain[i].ReleasePhase(&EnvelopeMain[i], args.sampleTime);
-            ENVcomp[i].AttackPhase(&EnvelopeCompanion[i], args.sampleTime);
-            ENVcomp[i].ReleasePhase(&EnvelopeCompanion[i], args.sampleTime);
-
-            float EOCmain = (ENVmain[i].isEOC(args.sampleTime)) * 10.f;
-            float EOCcomp = (ENVcomp[i].isEOC(args.sampleTime)) * 10.f;
-            float peak = isVelocity ? Velocity[i] : 10.f;
-            //mult by gate voltage for automatic velocity
-            outputs[ENVMAIN_OUTPUT + i].setVoltage(EnvelopeMain[i] * peak, 0);
-            outputs[EOCMAIN_OUTPUT + i].setVoltage(EOCmain, 0);
-            outputs[ENVCOMP_OUTPUT + i].setVoltage(EnvelopeCompanion[i] * peak, 0);
-            outputs[EOCCOMP_OUTPUT + i].setVoltage(EOCcomp, 0);
-
+            float EOCM = Main[i].is_EOC() * 10.f;
+            float EOCC = Couple[i].is_EOC() * 10.f;
+            outputs[EOCMAIN_OUTPUT + i].setVoltage(EOCM, 0);
+            outputs[EOCCOMP_OUTPUT + i].setVoltage(EOCC, 0);
         }
     }
 
@@ -368,8 +288,8 @@ struct DobbsModule : Module
         }
         for (int l = 0; l < 2; ++l) {
             int i = l * 3;
-            float enVal = EnvelopeMain[l];
-            float coVal = EnvelopeCompanion[l];
+            float enVal = Main_Env[l];
+            float coVal = Couple_Env[l];
 
             //float hu = ((this->currPanel / 5.f) + (enVal / 5.f)) * 360.f;
             float r1, g1, b1, r2, g2, b2;
@@ -383,12 +303,12 @@ struct DobbsModule : Module
             lights[HILL_LIGHT + i + 2].setBrightness(coVal * b2 / 255.f);
 
         }
-        lights[ASR_LEFT_LIGHT].setBrightness(ASRset[0]);
-        lights[ASR_RIGHT_LIGHT].setBrightness(ASRset[1]);
-        lights[SPEEDMAIN_LEFT_LIGHT].setBrightness(spdFsetM[0]);
-        lights[SPEEDMAIN_RIGHT_LIGHT].setBrightness(spdFsetM[1]);
-        lights[SPEEDCOMP_LEFT_LIGHT].setBrightness(spdFsetC[0]);
-        lights[SPEEDCOMP_RIGHT_LIGHT].setBrightness(spdFsetC[1]);
+        lights[ASR_LEFT_LIGHT].setBrightness(ASR_set[0]);
+        lights[ASR_RIGHT_LIGHT].setBrightness(ASR_set[1]);
+        lights[SPEEDMAIN_LEFT_LIGHT].setBrightness(spdMain_set[0]);
+        lights[SPEEDMAIN_RIGHT_LIGHT].setBrightness(spdMain_set[1]);
+        lights[SPEEDCOMP_LEFT_LIGHT].setBrightness(spdCoup_set[0]);
+        lights[SPEEDCOMP_RIGHT_LIGHT].setBrightness(spdCoup_set[1]);
     }
 
     json_t* dataToJson() override {
@@ -397,13 +317,13 @@ struct DobbsModule : Module
         json_t* panelJ = json_integer(currPanel);
         json_object_set_new(rootJ, "Panel", panelJ);
 
-        json_t* ASR1J = json_boolean(ASRset[0]);
-        json_t* ASR2J = json_boolean(ASRset[1]);
-        json_t* SPDMAIN1J = json_boolean(spdFsetM[0]);
-        json_t* SPDMAIN2J = json_boolean(spdFsetM[1]);
-        json_t* SPDCOMP1J = json_boolean(spdFsetC[0]);
-        json_t* SPDCOMP2J = json_boolean(spdFsetC[1]);
-        json_t* VelocityJ = json_boolean(isVelocity);
+        json_t* ASR1J = json_boolean(ASR_set[0]);
+        json_t* ASR2J = json_boolean(ASR_set[1]);
+        json_t* SPDMAIN1J = json_boolean(spdMain_set[0]);
+        json_t* SPDMAIN2J = json_boolean(spdMain_set[1]);
+        json_t* SPDCOMP1J = json_boolean(spdCoup_set[0]);
+        json_t* SPDCOMP2J = json_boolean(spdCoup_set[1]);
+        json_t* VelocityJ = json_boolean(auto_velocity_mode);
 
         json_object_set_new(rootJ, "ASR1", ASR1J);
         json_object_set_new(rootJ, "ASR2", ASR2J);
@@ -428,13 +348,13 @@ struct DobbsModule : Module
         json_t* SPDCOMP1J = json_object_get(rootJ, "SPEEDCOMP1");
         json_t* SPDCOMP2J = json_object_get(rootJ, "SPEEDCOMP2");
         json_t* VelocityJ = json_object_get(rootJ, "Velocity");
-        ASRset[0] = json_boolean_value(ASR1J);
-        ASRset[1] = json_boolean_value(ASR2J);
-        spdFsetM[0] = json_boolean_value(SPDMAIN1J);
-        spdFsetM[1] = json_boolean_value(SPDMAIN2J);
-        spdFsetC[0] = json_boolean_value(SPDCOMP1J);
-        spdFsetC[1] = json_boolean_value(SPDCOMP2J);
-        isVelocity = json_boolean_value(VelocityJ);
+        ASR_set[0] = json_boolean_value(ASR1J);
+        ASR_set[1] = json_boolean_value(ASR2J);
+        spdMain_set[0] = json_boolean_value(SPDMAIN1J);
+        spdMain_set[1] = json_boolean_value(SPDMAIN2J);
+        spdCoup_set[0] = json_boolean_value(SPDCOMP1J);
+        spdCoup_set[1] = json_boolean_value(SPDCOMP2J);
+        auto_velocity_mode = json_boolean_value(VelocityJ);
     }
 
 };
@@ -561,8 +481,8 @@ struct DobbsPanelWidget : ModuleWidget {
 
         //wow checkbox lambdas, how unique
         menu->addChild(createCheckMenuItem("Auto-Velocity", "Gate Voltage determines peak height",
-            [=]() {return module->isVelocity != false; },
-            [=]() {module->isVelocity ^= true; }
+            [=]() {return module->auto_velocity_mode != false; },
+            [=]() {module->auto_velocity_mode ^= true; }
         ));
 
         menu->addChild(new MenuSeparator());

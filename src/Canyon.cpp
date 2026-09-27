@@ -16,7 +16,7 @@ using namespace LydD::Delay;
 
 constexpr static size_t EIGHT_SECONDS = 352800;
 constexpr static size_t INPUT_BUFFER_SPACE = 524288; //closest power of 2 > 8 seconds
-constexpr static size_t DELAY_BUFFER_SPACE = 1024;
+constexpr static size_t DELAY_BUFFER_SPACE = 512;
 constexpr static int NUM_CHAN = 10;
 
 const std::string timeString[17] = { "1/5", "1/4", "1/3", "1/2", "1", " 1 1/4",
@@ -35,6 +35,7 @@ struct DivDisplay : rack::engine::ParamQuantity {
     //0--1 -> 0--2 -> 0--8, 0.5 -> 1 stays 1
     float cubepar(float par) {
         float b = par * 2.f;
+        if (b <= 1.f) return b;
         return b * b * b;
     }
     //0--1 -> 0--16, 0.5 -> 0.25 -> 4(index as float)
@@ -47,7 +48,9 @@ struct DivDisplay : rack::engine::ParamQuantity {
 
     float uncube_entered(float val) {
         if (val == 0.f) return 0.f;
-        float unc = std::cbrt(val);
+        float unc = val;
+        if (unc <= 1.f) return unc / 2.f;
+        unc = std::cbrt(unc);
         unc /= 2.f;
         return unc;
     }
@@ -396,16 +399,16 @@ struct CanyonModule : Module
 
     void debugOutput() {
         //debug outputs
-       //float w1 = (_Delay.inBuf._Rhead % (_Delay.inBuf.SI)) / float(_Delay.inBuf.SI);
-       //float w2 = (_Delay.inBuf._Whead % (_Delay.inBuf.SI)) / float(_Delay.inBuf.SI);
-       //float test[2] = { w1, w2 };
-       //float test1 =  _Delay._blockWindow.getWindowInd(_Delay.outBuf[0]._Rhead % DELAY_BUFFER_SPACE);
-       //float test2 =  _Delay._blockWindow.getWindowInd(_Delay.outBuf[1]._Rhead % DELAY_BUFFER_SPACE);
+       float w1 = (_Delay.inBuf._Rhead % (_Delay.inBuf.SI)) / float(_Delay.inBuf.SI);
+       float w2 = (_Delay.inBuf._Whead % (_Delay.inBuf.SI)) / float(_Delay.inBuf.SI);
+       float test[2] = { w1, w2 };
+       float test1 =  _Delay._blockWindow.getWindowInd(_Delay.outBuf[0]._Rhead % DELAY_BUFFER_SPACE);
+       float test2 =  _Delay._blockWindow.getWindowInd(_Delay.outBuf[1]._Rhead % DELAY_BUFFER_SPACE);
        //outputs[TESTOUT].setChannels(2);
        //outputs[TESTOUT2].setChannels(2);
-       //for (int c = 0; c < 2; ++c) {
+       for (int c = 0; c < 2; ++c) {
            //outputs[TESTOUT].setVoltage(test[c], c);
-       //}
+       }
        //outputs[TESTOUT2].setVoltage(test1, 0);
        //outputs[TESTOUT2].setVoltage(test2, 1);
     }
@@ -508,7 +511,10 @@ struct CanyonModule : Module
         for (int a = 0; a < 2; ++a) {
             float dp = params[DELAY_PARAM + a].value;
             float dp2 = dp * 2.f;
-            float delpar = dp2 * dp2 * dp2;//cubic from 0-2 gets 0-8 keeping 1 = 1(0.5parval)
+            float delpar = 0.f;
+            if (dp2 <= 1.f) delpar = dp2;
+            else delpar = dp2 * dp2 * dp2;//cubic from 0-2 gets 0-8 keeping 1 = 1(0.5parval)
+           
             float cv_atten = params[DELAY_CV_PARAM + a].value;
             //input can also scrub whole length but its linear
             float delayIn = (delay_input[a] * cv_atten) * 8.f;
@@ -615,6 +621,7 @@ struct CanyonModule : Module
             _extClock[a].reset();
         }
         loopCounter.store(0);
+		Module::onReset(e);
     }
 
 

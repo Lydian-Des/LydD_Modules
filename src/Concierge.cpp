@@ -829,20 +829,20 @@ struct ClockPanelWidget : ModuleWidget {
         addOutput(createOutput<PurplePort>(Vec(121.164, 339.105), module, ClockModule::BBQ_MEASURE_PHASE_OUTPUT));
 
 
+        ClockWidget* ClkWidget = createWidget<ClockWidget>((Vec(20, 30)));
+        ClkWidget->box.size = (Vec(50, 27));
+        ClkWidget->textPos = (Vec(47, 25));
+        ClkWidget->module = module;
+        addChild(ClkWidget);
+
+        TimeSignatureWidget* TSWidget = createWidget<TimeSignatureWidget>((Vec(80, 30)));
+        TSWidget->box.size = (Vec(50, 27));
+        TSWidget->textPos = (Vec(49, 25));
+        TSWidget->module = module;
+        addChild(TSWidget);
         
         if (module) {
-            
-            ClockWidget* ClkWidget = createWidget<ClockWidget>((Vec(20, 30)));
-            ClkWidget->box.size = (Vec(50, 27));
-            ClkWidget->textPos = (Vec(47, 25));
-            ClkWidget->module = module;
-            addChild(ClkWidget);
 
-            TimeSignatureWidget* TSWidget = createWidget<TimeSignatureWidget>((Vec(80, 30)));
-            TSWidget->box.size = (Vec(50, 27));
-            TSWidget->textPos = (Vec(49, 25));
-            TSWidget->module = module;
-            addChild(TSWidget);
 
             //must be called 'logoPos'for all modules 
             Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);

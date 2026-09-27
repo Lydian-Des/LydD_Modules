@@ -5,7 +5,7 @@
 #define PANEL "Dadras_panel.svg"
 #define HP 16
 
-#define MAX_LINE 512
+#define MAX_LINE 2048
 using namespace LydD;
 using namespace LydD::Matrix;
 static const int maxPolyphony = 1;
@@ -627,9 +627,10 @@ struct DadWidget : Widget{
 
     void drawPolyLine(const DrawArgs& args, Vec* line, float* opacity, float color[3], int size) {
         nvgBeginPath(args.vg);
-        
-        nvgStrokeWidth(args.vg, opacity[0] + 0.2f);
-        nvgStrokeColor(args.vg, nvgRGBAf(color[0], color[1], color[2], opacity[0]));
+        float op = rack::math::clamp(opacity[0], 0.f, 1.f);
+        nvgStrokeWidth(args.vg, op * 1.62f + 0.52f);
+        op = op * 0.2f + 0.7f;
+        nvgStrokeColor(args.vg, nvgRGBAf(color[0], color[1], color[2], op));
         nvgMoveTo(args.vg, line[0].x, line[0].y);
         for (int i = 1; i < size; ++i) {                      
             nvgLineTo(args.vg, line[i].x, line[i].y);

@@ -38,7 +38,7 @@ namespace Delay {
         //update time slower than even the buffer switches, smoother
         std::atomic<bool> buffer_switch;
         rack::dsp::BooleanTrigger _switchTick;
-        const int max_ticks = 8;
+        int max_ticks = 8;
         int tick_count = 0;
         bool updateTime = false;
 
@@ -215,24 +215,25 @@ namespace Delay {
     struct Tricked_Out_CFDelayLine : CF_DelayLine<T, S, D, N_CHAN, 
                         ReverseFreezeDoubleRing<FrameStereo<T, N_CHAN>, S>,
                         Runaway_ReversePitchDoubleRing<FrameStereo<T, N_CHAN>, D>> {
-        
-        //pitch can only be global, indexes output buffers
+
         const int pitch_gap = S / 8;
+        //pitch can only be global, indexes output buffers
         float Pitch;
         float pitchIncr[2];
-        //states and checker
-        bool StateChange = false;
-        //for debug
-        bool emptycatch = false;
+
         size_t freezeLoop;
 
         rack::dsp::BooleanTrigger _pitchTick;
 
-       
-        
+        //states and checker
+        bool StateChange = false;
 
+        //for debug
+        bool emptycatch = false;
 
         Tricked_Out_CFDelayLine() {
+            if (D < 1024) this->max_ticks = 16;
+            else this->max_ticks = 8;
         }
         //delete handled by base class
         ~Tricked_Out_CFDelayLine() {
@@ -255,14 +256,12 @@ namespace Delay {
             return;
         }
 
-        //if pitch becomes zero and stays there, this can tell you when to put the readhead back
         bool pitch_at_zero() {
             bool iszero = rack::math::isNear(this->outBuf[0].Pitch, 1.f);
             bool stable = this->outBuf[0].is_stable_pitch();
             bool moment = _pitchTick.process(iszero && stable);
             return moment;
         }
-
 
         //checks if half a buffer has passed, and switches writing to the other. windowing makes thies process silent
         void switch_buffers() override {
@@ -294,19 +293,17 @@ namespace Delay {
             }
         }
 
-
         //*****MAIN PROVIDED CALLS*****
-
-        //delaytime given in fractional samples
-        //samples must be array of N_CHAN size
-        /*void setDelay(T* samples) in base class*/
 
         //playback speed as v/oct
         void setPitch(T voct) {
             this->outBuf[0].setPitch(voct);
             this->outBuf[1].setPitch(voct);
         }
-        //loopgap could be same as loopsize below, or not
+        //delaytime given in fractional samples
+        //samples must be array of N_CHAN size
+        //void setDelay(T* samples) in base class
+
         void setReverse(bool rev, float loopgap) {
             detect_state(rev, this->inBuf.Reverse);
             this->inBuf.setReverse(rev, loopgap);
@@ -322,20 +319,19 @@ namespace Delay {
 
         }
 
-        //t is array of one sample per channel, size N_CHAN
-        /*void PushInput(T* t) in base class*/
-        
-        //call after pushInput
+        //call after pushInput(exists in base class)
         void BlockProcess() override {
-            switch_buffers();         
+
+            switch_buffers();
+            
             if (this->outBuf[this->buffer_switch].is_empty()) {
                 this->pass_block();              
+                emptycatch = true;
+            }
+            else {
+                emptycatch = false;
             }
         }
-
-        //call after blockProcess
-        //returns pointer to internal array of N_CHAN size
-        /*T* CrossfadeOutput() in base class*/
     };
 
     template <typename T = float, size_t S = 44100, size_t TAPS = 4>

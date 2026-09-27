@@ -87,29 +87,29 @@ struct NotePicker {
             //if this pitch not enabled, go up and down until enabled or edge is found, compare distances, pick smallest
             int semiab = 0;
             int semibe = 0;
-            if (!enabled[c / 2]) {
-                while (!enabled[modN((c / 2) + semiab, BOARD)] && (c / 2) + semiab < BOARD) {
+            int nt = c / 2;
+            if (!enabled[nt]) {
+                while (!enabled[modN(nt + semiab, BOARD)] && nt + semiab < BOARD) {
                     semiab++;
                     
                 }
-                if (enabled[(c / 2) + semiab]) nearab = c / 2 + semiab;
+                if (enabled[nt + semiab]) nearab = nt + semiab;
 
-                while (!enabled[modN((c / 2) - semibe, BOARD)] && (c / 2) - semibe >= 0) {
-                    semibe++;
-                    
+                while (!enabled[modN(nt - semibe, BOARD)] && nt - semibe >= 0) {
+                    semibe++;                
                 }
-                if (enabled[(c / 2) - semibe]) nearbe = c / 2 - semibe;
+                if (enabled[modN(nt - semibe, BOARD)]) nearbe = nt - semibe;
 
                 //if it goes to the end without finding enabled, force it to pick the other even if distance stepped is shorter
-                if (!enabled[(c / 2) + semiab]) nearab = nearbe; //nearab = c / 2 + semiab;
-                if (!enabled[(c / 2) - semibe]) nearbe = nearab;; //nearbe = c / 2 - semibe;
+                if (!enabled[nt + semiab]) nearab = nearbe; //nearab = c / 2 + semiab;
+                if (!enabled[modN(nt - semibe, BOARD)]) nearbe = nearab;; //nearbe = c / 2 - semibe;
 
                 //pick nearest semitone
                 nearest = (semiab < semibe) ? nearab : nearbe;
             }
             else {
                 //nearest semi is this one
-                nearest = c / 2;
+                nearest = nt;
             }
 
             Pchosen[c] = nearest;
@@ -393,7 +393,7 @@ struct QuantModule : Module
             int tempPoly = polyNote[c];
             //offset voltage by 4 pages/octaves to center in array
             int polySemi = (inputs[POLY_INPUT].getVoltage(c) + 4) * 12;            
-            polySemi = rack::math::clamp(polySemi, 0, BOARD);
+            polySemi = rack::math::clamp(polySemi, 0, BOARD - 1);
             //take direct note, nice and simple
             polyNote[c] = polySemi;
             if (polyNote[c] != tempPoly) polychange = true;
@@ -553,37 +553,49 @@ struct HexLight : SvgWidget {
     void Svg(std::string path) {
         this->setSvg(Svg::load(asset::plugin(pluginInstance, path)));
     }
-    void drawLayer(const DrawArgs& args, int layer) override {
-        if (module && this->svg && layer == 1) {
-            float Active = module->isLitKey[Note];
-            float mode = module->PageMode;
-            int playingNote = -1; //note not playing on any lane
-            int numplaying = 0; //how many lanes playing this note
-            for (int l = 0; l < 4; ++l) {
-                if (module->playingPitch[l] == Note) {
-                    
-                    numplaying++;
-                    playingNote += (l + 1) * numplaying;
+
+    void set_draw(const DrawArgs& args, float hsl, float prsd) {
+        nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
+        for (auto s = svg->handle->shapes; s; s = s->next) {
+            nvgFillColor(args.vg, nvgHSL(hsl, 0.8, prsd / 2.f));
+            for (auto p = s->paths; p; p = p->next) {
+                nvgBeginPath(args.vg);
+                nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
+                for (auto i = 0; i < p->npts - 1; i += 3) {
+                    float* path = &p->pts[i * 2];
+                    nvgBezierTo(args.vg, path[2], path[3], path[4], path[5], path[6], path[7]);
                 }
+                if (p->closed)
+                    nvgLineTo(args.vg, p->pts[0], p->pts[1]);
+                if (s->fill.type)
+                    nvgFill(args.vg);
             }
-            nvgGlobalCompositeBlendFunc(args.vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
-            float hue = (mode == 0) ? 0.65 : 0.75 - (module->Page / 14.f);
-            hue = playingNote != -1 ? playingNote / 8.f : hue;
-                for (auto s = svg->handle->shapes; s; s = s->next) {
-                    nvgFillColor(args.vg, nvgHSL(hue, 0.8, Active / 2.f));
-                    for (auto p = s->paths; p; p = p->next) {
-                        nvgBeginPath(args.vg);
-                        nvgMoveTo(args.vg, p->pts[0], p->pts[1]);
-                        for (auto i = 0; i < p->npts - 1; i += 3) {
-                            float* path = &p->pts[i * 2];
-                            nvgBezierTo(args.vg, path[2], path[3], path[4], path[5], path[6], path[7]);
-                        }
-                        if (p->closed)
-                            nvgLineTo(args.vg, p->pts[0], p->pts[1]);
-                        if (s->fill.type)
-                            nvgFill(args.vg);
+        }
+    }
+
+    void drawLayer(const DrawArgs& args, int layer) override {
+        
+        if (module) {
+            if (this->svg && layer == 1) {
+                float Active = module->isLitKey[Note];
+                float mode = module->PageMode;
+                int playingNote = -1; //note not playing on any lane
+                int numplaying = 0; //how many lanes playing this note
+                for (int l = 0; l < 4; ++l) {
+                    if (module->playingPitch[l] == Note) {
+                        numplaying++;
+                        playingNote += (l + 1) * numplaying;
                     }
                 }
+                float hue = (mode == 0) ? 0.65 : 0.75 - (module->Page / 14.f);
+                hue = playingNote != -1 ? playingNote / 8.f : hue;
+                set_draw(args, hue, Active);
+            }
+        }
+        else {
+            if (this->svg && layer == 1) {
+                set_draw(args, 0.f, 0.f);
+            }
         }
         Widget::drawLayer(args, layer);
     }
@@ -653,17 +665,19 @@ struct QuantPanelWidget : ModuleWidget {
         }
         //addOutput(createOutput<PurplePort>(Vec(lsX , 25), module, QuantModule::TEST_OUT));
 
+        addChild(createLight<PageLight>(Vec(6.727, 191.556), module, QuantModule::PAGE_LIGHT));
+
+        for (int note = 0; note < OCT; ++note) {
+            HexLight* quantlight = createWidget<HexLight>(Vec(notePos[note].x + 1.5f, notePos[note].y - 1.f));
+            quantlight->Note = note;
+            quantlight->Svg("res/QuantLights/HexLight32px.svg");
+            quantlight->module = module;
+            addChild(quantlight);
+        }
+
 
         if (module) {
-            addChild(createLight<PageLight>(Vec(6.727, 191.556), module, QuantModule::PAGE_LIGHT));
 
-            for (int note = 0; note < OCT; ++note) {
-                HexLight* quantlight = createWidget<HexLight>(Vec(notePos[note].x + 1.5f, notePos[note].y - 1.f));
-                quantlight->Note = note;
-                quantlight->Svg("res/QuantLights/HexLight32px.svg");
-                quantlight->module = module;
-                addChild(quantlight);
-            }
 
             //must be called 'logoPos'for all modules 
             Vec logoPos = Vec(((15.f * HP) / 2.f) - 12.5, 363.f);

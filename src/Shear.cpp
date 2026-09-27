@@ -60,17 +60,11 @@ struct ShearModule : Module
     float EvenOdd = 0.f;
     float Feedback = 0.f;
     float Skew = 0.f;
-    //float combSumLeft = 0;
-    //float combSumRight = 0;
+
     LydD::Buffers::FrameStereo<float, 2> Comb_Sum;
-    //float BandsLeft[12] = { 0.f };
-    //float BandsRight[12] = { 0.f };
     LydD::Buffers::FrameStereo<float, 2> BANDS[12];
     float visData[6] = { 0.f };
 
-    //thank goud for these little guys
-    //rack::dsp::BiquadFilter _CombL[12];
-    //rack::dsp::BiquadFilter _CombR[12];
     //new and 'improved'
     LydD::Filter::Multi_Channel_BiQuad_Filter<float, 2, LydD::Filter::BiQuad_Types::BANDPASS> _COMBS[12];
 
@@ -82,8 +76,6 @@ struct ShearModule : Module
         configParam(EVEN_ODD_PARAM, -1.f, 1.f, 0.f, "Even / Odd");
         configParam(SKEW_PARAM, -1.f, 1.f, 0.f, "Skew");
         for (int i = 0; i < 12; ++i) {
-            //_CombL[i].reset();
-            //_CombR[i].reset();
             _COMBS[i].reset();
         }
         configInput(AUDIOLEFT_INPUT, "Audio Left");
@@ -256,6 +248,8 @@ struct ShearModule : Module
         outputs[FEEDRIGHT_SEND_OUTPUT].setVoltage(0.f, 0);
         outputs[AUDIOLEFT_OUTPUT].setVoltage(0.f, 0);
         outputs[AUDIORIGHT_OUTPUT].setVoltage(0.f, 0);
+
+        Module::onReset(e);
     }
     //nothing to save so the relic sits untouched
     json_t* dataToJson() override {
