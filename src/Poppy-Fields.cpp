@@ -73,7 +73,6 @@ struct PoppyModule : Module
         X_TRIG_OUTPUT,
         Y_TRIG_OUTPUT,
         AUX_OUTPUT,
-        TEST,
         NUM_OUTPUTS
 	};
     enum LightIds {
@@ -91,16 +90,14 @@ struct PoppyModule : Module
 #include "Theme/PanelVars.h"
 
     brotPicker Brot;
-
-    int loopCounter = 0;
     //init chosen fractal
     Brot_Pick brotType = Brot.chooseFractal(0);
+    int loopCounter = 0;
+
     //vectors being filled with sequence
-    //worker thread has to use Coords, C, Z , EXP
+    //worker thread has to use Coords, C, Z, & EXP
     float xCoord[ITERS + 1];
     float yCoord[ITERS + 1];
-
-    int TESTOUCH;
 
     //output ranges and bounding box for zoom
     float range = 2.f;
@@ -199,8 +196,6 @@ struct PoppyModule : Module
     rack::dsp::SlewLimiter _slewlimitX{};
     rack::dsp::TRCFilter<float> deClick;
 
-    //std::thread SEQ;
-    //std::mutex fracTex;
     std::atomic<bool> Quitting{ false };
 
     PoppyModule() {
@@ -260,13 +255,10 @@ struct PoppyModule : Module
 
 
     #include "Theme/setDefaultInit.h"
-
-       // if (!SEQ.joinable()) SEQ = std::thread(&PoppyModule::createSequence, this);
     }
     ~PoppyModule() {
         Quitting.store(true);
         _ANYCHANGE.store(false);
-        //if (SEQ.joinable()) SEQ.join();
     }
 
     
@@ -585,18 +577,31 @@ struct PoppyModule : Module
 
     void set_slew() {
         //making slew limiter RiseFall proportional to estimated time between clock pulses(speedX, speedY). 
-        float smoothnessX = -(params[SLEW_X_PARAM].value) + 1;
+        float smoothnessX = (params[SLEW_X_PARAM].value) * 0.1f + 0.9f;
         if (inslewX) {
-            float smooXput = lerp(0.f, 1.f, 0.f, 5.f, rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), 0.f, 5.f));
-            smoothnessX = ((smooXput > 0) ? smooXput : 0);
+            float smooXput = rack::math::clamp(inputs[SLEW_X_INPUT].getVoltage(0), -5.f, 5.f);
+            smooXput /= 5.f;
+            smooXput *= 0.1f;
+            smoothnessX = rack::math::clamp(smoothnessX + smooXput, 0.f, 1.f);
         }
-        _slewlimitX.setRiseFall(lerp(speedX, 20000.f, 0.f, 1.f, pow(smoothnessX, 4.f)), lerp(speedX, 20000.f, 0.f, 1.f, pow(smoothnessX, 4.f)));
-        float smoothnessY = -(params[SLEW_Y_PARAM].value) + 1;
+        //inverse relationship to time
+        smoothnessX = -smoothnessX + 1.f;
+        smoothnessX *= smoothnessX;
+
+        float rfx = lerp(speedX, 20000.f, 0.f, 1.f, smoothnessX);
+        _slewlimitX.setRiseFall(rfx, rfx);
+
+        float smoothnessY = (params[SLEW_Y_PARAM].value) * 0.1f + 0.9f;
         if (inslewY) {
-            float smooYput = lerp(0.f, 1.f, 0.f, 5.f, rack::math::clamp(inputs[SLEW_Y_INPUT].getVoltage(0), 0.f, 5.f));
-            smoothnessY = ((smooYput > 0) ? smooYput : 0);
+            float smooYput = rack::math::clamp(inputs[SLEW_Y_INPUT].getVoltage(0), -5.f, 5.f);
+            smooYput /= 5.f;
+            smooYput *= 0.1f; 
+            smoothnessY = rack::math::clamp(smoothnessY + smooYput, 0.f, 1.f);
         }
-        _slewlimitY.setRiseFall(lerp(speedY, 20000.f, 0.f, 1.f, pow(smoothnessY, 4.f)), lerp(speedY, 20000.f, 0.f, 1.f, pow(smoothnessY, 4.f)));
+        smoothnessY = -smoothnessY + 1.f;
+        smoothnessY *= smoothnessY;
+        float rfy = lerp(speedY, 20000.f, 0.f, 1.f, smoothnessY);
+        _slewlimitY.setRiseFall(rfy, rfy);
 
     }
 
@@ -653,13 +658,11 @@ struct PoppyModule : Module
             drawneeded |= qualpr != quality;
             //tell the widget it needs to calculate
             if (drawneeded) _DRAWCHANGE.store(true);
-        //}
-            outputs[TEST].setVoltage(TESTOUCH, 0);
+
 
     }
 
     void createSequence() {
-       // while (true) {
             //if theres been no change or the module is being deleted, just leave so no lock gets lost
             if (Quitting) return;
 
@@ -673,11 +676,6 @@ struct PoppyModule : Module
 
             //still make sure math only runs when theres been a change
             if (_ANYCHANGE) {
-                //lock direct access to shared data
-                //ACTUALLY maybe worker cant ever lock main out
-                //{
-                    //std::lock_guard<std::mutex> lock(fracTex);
-                
                     C = std::complex<float>(Cx, Cyi);
                     Z = std::complex<float>(Zx, Zyi);
                     expon = EXP;
@@ -693,34 +691,23 @@ struct PoppyModule : Module
                     }
                 //this runs until ITERS(or escape) and returns K while setting the sequence in x amd y
                 Kreached = RunVertical(brotType, xco, yco, ITERS, Z, C, expon);
-
-                //lock again to transfer
-                //{
-                    //std::lock_guard<std::mutex> lock(fracTex);
                     for (int i = 0; i < ITERS; ++i) {
                         xCoord[i] = xco[i];
                         yCoord[i] = yco[i];
                     }
-               // }
-
                 //wait for another change to occur
                 _ANYCHANGE.store(false);
             }
-            //fracTex.unlock();
-            
-        //}
     }
 
     void set_step_wrap() {
         //wrap any given sequence around the max size(ITERS)
         int bX = (Xseqstep + seqstart);
         Xstep = bX % ITERS;
-        XshiftStep = wraparound(bX, shiftOffset, ITERS, true);// (Xseqstep + seqstart - shiftOffset) % ITERS;
-        //XshiftStep = (XshiftStep < 0) ? 0 : XshiftStep;
+        XshiftStep = wraparound(bX, shiftOffset, ITERS, true);
         int bY = (Yseqstep + seqstart);
         Ystep = bY % ITERS;
-        YshiftStep = wraparound(bY, shiftOffset, ITERS, true); // (Yseqstep + seqstart - shiftOffset) % ITERS;
-        //YshiftStep = (YshiftStep < 0) ? 0 : YshiftStep;
+        YshiftStep = wraparound(bY, shiftOffset, ITERS, true);
     }
 
     void set_X_outs(float st,float clk, float main, float shift) {
@@ -744,17 +731,18 @@ struct PoppyModule : Module
             nowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, main) + fractOffset[fractal];
             shiftnowX = lerp(_range - Mutate, range + Mutate, -2.f, 2.f, shift) + fractOffset[fractal];
             dtX = timestepX;
+            speedX = 1.f / dtX;
             timerX.reset();
         }
-        outputs[X_TRIG_OUTPUT].setVoltage(TriggerX.isHigh() * 5.0f, 0);
+        outputs[X_TRIG_OUTPUT].setVoltage(TriggerX.isHigh() * 10.f, 0);
 
         //gotta put in 2 more copies of the slew limiter for the shift register outputs. or Not.
-        nowX = _slewlimitX.process(st, nowX);
-        outputs[X_CV_OUTPUT].setVoltage(nowX, 0);
+        float outX = _slewlimitX.process(st, nowX);
+        outputs[X_CV_OUTPUT].setVoltage(outX, 0);
 
         outputs[XSHIFT_CV_OUTPUT].setVoltage(shiftnowX, 0);
 
-        speedX = 1.f / dtX;
+
     }
     void set_Y_outs(float st, float clk, float main, float shift) {
 
@@ -762,7 +750,6 @@ struct PoppyModule : Module
 
         bool isY = TriggerY.process(clk, 0.8f, 1.f);
         if (isY) {
-
 
             if (reverse) {
                 Yseqstep -= 1;
@@ -779,15 +766,15 @@ struct PoppyModule : Module
             nowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, main) + fractOffset[fractal];
             shiftnowY = lerp(_rangeY - Mutate, rangeY + Mutate, -2.f, 2.f, shift) + fractOffset[fractal];
             dtY = timestepY;
+            speedY = 1.f / dtY;
             timerY.reset();
         }
         outputs[Y_TRIG_OUTPUT].setVoltage(TriggerY.isHigh() * 5.0f, 0);
 
-        nowY = _slewlimitY.process(st, nowY);
-        outputs[Y_CV_OUTPUT].setVoltage(nowY, 0);
+        float outY = _slewlimitY.process(st, nowY);
+        outputs[Y_CV_OUTPUT].setVoltage(outY, 0);
         outputs[YSHIFT_CV_OUTPUT].setVoltage(shiftnowY, 0);
 
-        speedY = 1.f / dtY;
     }
 
     void set_aux_outs(float st) {
@@ -842,9 +829,8 @@ struct PoppyModule : Module
         float cvValY = 0;
         float shiftValX = 0;
         float shiftValY = 0;
-        //lock worker out to pull coordinates
+
         {
-            //std::lock_guard<std::mutex> lock(fracTex);
             //lets get wierd with it
             if (!julia) {
                 Mutate = rack::dsp::sqrtBipolar((Zx * Zx) + (Zyi * Zyi));
@@ -1169,8 +1155,6 @@ struct FracWidget : Widget {
             //render 'iteras' passes of the fractal one at a time
             if (style != 0 && frames <= (iteras / itergroup)) {
                 /*filling screenbuffer with RGBA values*/
-                Fracking->TESTOUCH = FracDraw->getKEscapeFraction((drawboxX / 2) * (drawboxY / 2));
-
                 Vec Xwindow = Vec(xdrawMin, xdrawMax);
                 Vec Ywindow = Vec(ydrawMin, ydrawMax);
                 std::complex<float> Z(ZparX, ZparY);
@@ -1229,7 +1213,6 @@ struct FracWidget : Widget {
             }
             //if done generating, do nice color shift
             else if (frames > iteras / itergroup && style > 1) {
-                Fracking->TESTOUCH = FracDraw->getKEscapeFraction((drawboxX / 2) * (drawboxY / 2));
 
                 for (int ix = 0; ix < drawboxX * drawboxY; ++ix) {
                     //incrementPhase(1.f, 2000.f, &pic->Khues[ix * 4 + 0], 360.f);
@@ -1366,8 +1349,6 @@ struct PoppyWidget : ModuleWidget {
         addOutput(createOutput<PurplePort>(Vec(267, 331), module, PoppyModule::Y_TRIG_OUTPUT));
         addOutput(createOutput<PurplePort>(Vec(197, 331), module, PoppyModule::AUX_OUTPUT));
 
-        addOutput(createOutput<PurplePort>(Vec(30, 7), module, PoppyModule::TEST));
-        
         if (module) {
             FracWidgetBuffer* FracBuffer = new FracWidgetBuffer(module);
             addChild(FracBuffer);

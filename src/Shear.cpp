@@ -193,30 +193,14 @@ struct ShearModule : Module
         }
 
         //process 1st band then add others to it in loop
-        //BandsLeft[0] = _CombL[0].process(audinLeft);
-        //BandsRight[0] = _CombR[0].process(audinRight);
-        //combSumLeft = BandsLeft[0];
-        //combSumRight = BandsRight[0];
         BANDS[0] = _COMBS[0].process(audio_in);
         Comb_Sum = BANDS[0];
         for (int i = 1; i < 12; ++i) {
             float eveness = (i % 2 == 1) ? (EvenOdd) : (-EvenOdd);
-            //BandsLeft[i] = _CombL[i].process(audinLeft);
-            //combSumLeft += BandsLeft[i] * (( eveness ) / 2.f + 0.5f);
-            //BandsRight[i] = _CombR[i].process(audinRight);
-            //combSumRight += BandsRight[i] * (( eveness ) / 2.f + 0.5f);
             BANDS[i] = _COMBS[i].process(audio_in);
             Comb_Sum += BANDS[i] * ((eveness) / 2.f + 0.5f);
         }
         //clamp to +-1 (should already be close) then enlarge with resonance, as the cutting tends to reduce volume
-        //combSumLeft = rack::math::clamp(combSumLeft, -1.f, 1.f);
-        //combSumRight = rack::math::clamp(combSumRight, -1.f, 1.f);
-        //combSumLeft *= Resonance + 1.f;
-        //combSumRight *= Resonance + 1.f;
-        // 
-        //dont have all the overloads for clamp yet
-        //Comb_Sum[0] = rack::math::clamp(Comb_Sum[0], -1.f, 1.f);
-        //Comb_Sum[1] = rack::math::clamp(Comb_Sum[1], -1.f, 1.f);
         Comb_Sum *= Resonance + 1.f;
 
 
@@ -226,8 +210,8 @@ struct ShearModule : Module
             visData[d + 3] = (Comb_Sum[1] <= -0.001f || Comb_Sum[1] >= 0.001f) ? _COMBS[d].getFrequencyPhase(BANDS[d][1]) * 0.4 : 0.f;
         }
 
-        float outLeft = Comb_Sum[0];// driveClamp(Comb_Sum[0]);
-        float outRight = Comb_Sum[1];// driveClamp(Comb_Sum[1]);
+        float outLeft = driveClamp(Comb_Sum[0]);
+        float outRight = driveClamp(Comb_Sum[1]);
         //don't send driven signal to feedback, keeps things tamer
         outputs[FEEDLEFT_SEND_OUTPUT].setVoltage(Comb_Sum[0] * (5.f), 0);
         outputs[FEEDRIGHT_SEND_OUTPUT].setVoltage(Comb_Sum[1] * (5.f), 0);
